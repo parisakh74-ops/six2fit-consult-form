@@ -27,18 +27,6 @@ function readAttribution() {
   }
   const params = new URLSearchParams(window.location.search);
   const get = (k: string) => params.get(k)?.slice(0, 120) || null;
-  const onboarding_prefill: Record<string, unknown> = {
-    "ON-01": answers.lead_full_name.trim(),
-    "ON-03": answers.sex || null,
-    "ON-06.iso": answers.whatsapp_country ?? null,
-    "ON-06.cc": answers.whatsapp_dial_code,
-    "ON-06.n": normalizePhone(answers.whatsapp_dial_code, answers.whatsapp_phone),
-    "ON-07": answers.email?.trim() || null,
-    "ON-08": answers.height_cm ?? null,
-    "ON-09.kg": answers.weight_kg ?? null,
-    timezone,
-  };
-
   return {
     utm_source: get("utm_source"),
     utm_campaign: get("utm_campaign"),
@@ -62,6 +50,17 @@ export function buildPayload(params: {
     allHealthFlags.map((f) => [f.code, selectedFlags.includes(f.code)]),
   ) as Record<string, boolean>;
   const timezone = answers.preferred_contact_timezone?.trim() || null;
+  const onboarding_prefill: Record<string, unknown> = {
+    "ON-01": answers.lead_full_name.trim(),
+    "ON-03": answers.sex || null,
+    "ON-06.iso": answers.whatsapp_country ?? null,
+    "ON-06.cc": answers.whatsapp_dial_code,
+    "ON-06.n": normalizePhone(answers.whatsapp_dial_code, answers.whatsapp_phone),
+    "ON-07": answers.email?.trim() || null,
+    "ON-08": answers.height_cm ?? null,
+    "ON-09.kg": answers.weight_kg ?? null,
+    timezone,
+  };
 
   return {
     submission_id: submissionId,
