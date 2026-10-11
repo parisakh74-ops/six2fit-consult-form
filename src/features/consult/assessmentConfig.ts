@@ -8,7 +8,7 @@
  * keys used by validation, scoring and the CRM payload.
  */
 
-export const FORM_VERSION = "consult-2.0.0";
+export const FORM_VERSION = "consult-2.1.0";
 export const CONSENT_VERSION = "consent-1.0.0";
 
 export type Severity = "RED" | "YELLOW" | null;
