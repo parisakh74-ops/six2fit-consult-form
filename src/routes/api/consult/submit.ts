@@ -24,7 +24,12 @@ const ID = /^cns_[0-9a-f-]{20,80}$/i;
 export const Route = createFileRoute("/api/consult/submit")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
+      POST: ({ request }) => handleConsultSubmission(request),
+    },
+  },
+});
+
+export async function handleConsultSubmission(request: Request) {
         try {
           if (!new URL(request.url).hostname.toLowerCase().includes("consult-staging")) {
             return Response.json({ error_code: "STAGING_ONLY" }, { status: 403 });
@@ -75,7 +80,4 @@ export const Route = createFileRoute("/api/consult/submit")({
           console.error("Consult staging submission failed", error instanceof Error ? error.message : "Unknown error");
           return Response.json({ error_code: "STAGING_UNAVAILABLE" }, { status: 503 });
         }
-      },
-    },
-  },
-});
+}

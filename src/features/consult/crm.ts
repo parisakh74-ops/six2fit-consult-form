@@ -145,7 +145,7 @@ export async function submitConsultToCRM(
     return { ok: false, error_code: "INVALID_PAYLOAD" };
   }
 
-  const endpoint = import.meta.env["VITE_CONSULT_SUBMIT_PATH"] || "/api/consult/submit";
+  const endpoint = import.meta.env["VITE_CONSULT_SUBMIT_PATH"] || "/?six2fit_api=consult";
   const response = await fetch(endpoint, {
     method: "POST",
     credentials: "same-origin",

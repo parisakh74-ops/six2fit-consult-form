@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { ConsultForm } from "@/features/consult/ConsultForm";
+import { handleConsultSubmission } from "./api/consult/submit";
 
 export const Route = createFileRoute("/")({
+  server: { handlers: { POST: ({ request }) => handleConsultSubmission(request) } },
   head: () => ({
     meta: [
       { title: "6toFit Consult — مشاوره تخصصی Six2Fit" },
