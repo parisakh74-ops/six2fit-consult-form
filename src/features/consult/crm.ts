@@ -5,7 +5,7 @@ import {
   budgetQuestions,
   outcomeCopy,
 } from "./assessmentConfig";
-import { evaluateOutcome, normalizePhone } from "./outcome";
+import { buildActiveModules, evaluateOutcome, getActiveCategories, normalizePhone } from "./outcome";
 import type { ConsultAnswers, ConsultPayload, SubmitResult } from "./types";
 
 export function createSubmissionId(): string {
@@ -72,6 +72,7 @@ export function buildPayload(params: {
       answers.whatsapp_dial_code,
       answers.whatsapp_phone,
     ),
+    whatsapp_dial_code: answers.whatsapp_dial_code,
     whatsapp_country: answers.whatsapp_country ?? null,
     email: answers.email?.trim() || null,
     consult_channel: answers.consult_channel,
@@ -98,12 +99,12 @@ export function buildPayload(params: {
 
     exercise_limitation: answers.ts_01_has_limitation ?? null,
     exercise_clearance: answers.ts_03_clearance ?? null,
-    sport_categories:
-      answers.ts_01_has_limitation && answers.ts_01_has_limitation !== "no"
-        ? answers.ts_02_categories
-        : [],
+    sport_categories: getActiveCategories(answers),
+    modules: buildActiveModules(answers),
     module_scores: outcome.module_scores,
     hard_red_flags: outcome.hard_red_flags,
+    nutrition_red_reasons: outcome.nutrition_red_reasons,
+    nutrition_yellow_reasons: outcome.nutrition_yellow_reasons,
 
     safety_outcome: outcome.safety_outcome,
     general_plan_eligible: outcome.general_plan_eligible,

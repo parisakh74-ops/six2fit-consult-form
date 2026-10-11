@@ -29,6 +29,46 @@ export function moduleBand(score: number): SafetyOutcome {
   return "GREEN";
 }
 
+/**
+ * Single definition of "active" sport modules, shared by scoring, red-flag
+ * collection and the CRM payload so inactive (stale) answers never leak.
+ */
+export function getActiveCategories(
+  answers: Pick<Partial<ConsultAnswers>, "ts_01_has_limitation" | "ts_02_categories">,
+): string[] {
+  if (!answers.ts_01_has_limitation || answers.ts_01_has_limitation === "no") return [];
+  return [...new Set(answers.ts_02_categories ?? [])];
+}
+
+const MODULE_TEXT_KEYS = [
+  "diagnosis",
+  "onset",
+  "recovery",
+  "pain",
+  "reaction",
+  "clearance",
+  "notes",
+] as const;
+
+/** Complete answers of the active sport modules only (empty optional values omitted). */
+export function buildActiveModules(
+  answers: Pick<Partial<ConsultAnswers>, "ts_01_has_limitation" | "ts_02_categories" | "modules">,
+): Record<string, ModuleAnswer> {
+  const result: Record<string, ModuleAnswer> = {};
+  for (const key of getActiveCategories(answers)) {
+    if (!sportModuleByKey[key]) continue;
+    const source = answers.modules?.[key] ?? {};
+    const entry: ModuleAnswer = {};
+    for (const field of MODULE_TEXT_KEYS) {
+      const value = source[field];
+      if (typeof value === "string" && value.trim() !== "") entry[field] = value.trim();
+    }
+    entry.red_flags = [...new Set((source.red_flags ?? []).filter((f) => f !== ""))];
+    result[key] = entry;
+  }
+  return result;
+}
+
 /** Hard red flags selected inside sport modules, plus the TS-03 training ban. */
 export function collectHardRedFlags(answers: Partial<ConsultAnswers>): string[] {
   const flags: string[] = [];
@@ -69,10 +109,7 @@ export function evaluateOutcome(answers: Partial<ConsultAnswers>): OutcomeResult
   const module_scores: Record<string, number> = {};
   for (const mod of sportModules) module_scores[mod.scoreField] = 0;
 
-  const activeCategories =
-    answers.ts_01_has_limitation && answers.ts_01_has_limitation !== "no"
-      ? (answers.ts_02_categories ?? [])
-      : [];
+  const activeCategories = getActiveCategories(answers);
 
   let anyModuleRed = false;
   let anyModuleYellow = false;
