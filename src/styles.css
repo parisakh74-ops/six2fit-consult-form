@@ -29,6 +29,9 @@
   --color-brand-soft: var(--brand-soft);
   --color-brand-foreground: var(--brand-foreground);
   --color-surface: var(--surface);
+  --color-primary-soft: var(--brand-soft);
+  --color-info: var(--muted-foreground);
+  --color-info-soft: var(--surface);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -156,4 +159,33 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+}
+
+@layer base {
+  html { font-family: var(--font-sans); letter-spacing: 0; scroll-padding-bottom: 160px; }
+  body { -webkit-font-smoothing: antialiased; }
+  button, input, select, textarea { font-family: inherit; }
+}
+@layer components {
+  .q-card { @apply min-w-0 space-y-2.5; }
+  .field { @apply min-h-12 w-full min-w-0 rounded-xl border border-border bg-card px-4 py-3 text-[15px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/25 disabled:cursor-not-allowed disabled:opacity-60; }
+  textarea.field { @apply min-h-28 resize-y leading-7; }
+  .option { @apply relative flex min-h-12 w-full cursor-pointer items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3.5 text-start text-[15px] font-medium leading-6 transition-colors hover:border-foreground/25; }
+  .option:has(:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .option[data-selected="true"] { @apply border-brand bg-brand-soft; }
+  .option:has(:disabled) { @apply cursor-not-allowed opacity-60; }
+  .option-mark { @apply mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border border-border bg-background transition-colors; }
+  .option[data-selected="true"] .option-mark { @apply border-brand bg-brand; }
+  .option-mark-sq { @apply rounded-md; }
+  .chip { @apply inline-flex items-center gap-1 rounded-xl border border-border px-2.5 py-1 text-[12px] font-medium; }
+  .range { @apply w-full accent-brand; }
+  .range:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+  .q-card[data-error="true"] .field, label:has(> [role="alert"]) .field { border-color: var(--destructive); }
+  .q-card [role="alert"] { @apply text-[13px] font-medium; }
+  .onboarding-actions { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .conditional-fields { animation: reveal-fields 180ms ease-out; }
+}
+@keyframes reveal-fields { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
