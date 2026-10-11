@@ -94,6 +94,7 @@ export function ConsultForm() {
   const [step, setStep] = useState(0);
   const [status, setStatus] = useState<Status>("idle");
   const [outcome, setOutcome] = useState<SafetyOutcome>("GREEN");
+  const [onboardingUrl, setOnboardingUrl] = useState<string | null>(null);
   const pendingRef = useRef(false);
   const [noNutritionConditions, setNoNutritionConditions] = useState(false);
   const [nutritionSelectionError, setNutritionSelectionError] = useState(false);
@@ -193,6 +194,7 @@ export function ConsultForm() {
         return;
       }
       setOutcome(payload.safety_outcome);
+      setOnboardingUrl(result.onboarding_url ?? null);
       setStatus("success");
       submissionIdRef.current = null;
       if (typeof window !== "undefined") window.scrollTo({ top: 0 });
@@ -226,6 +228,11 @@ export function ConsultForm() {
           <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-muted-foreground">
             {copy.text}
           </p>
+          {onboardingUrl ? (
+            <a className="mt-6 inline-flex min-h-12 items-center justify-center rounded-xl bg-brand px-6 font-semibold text-white" href={onboardingUrl} rel="noreferrer">
+              تکمیل فرم اطلاعات برنامه
+            </a>
+          ) : null}
         </Card>
         {import.meta.env.DEV ? (
           <DevPayloadPreview

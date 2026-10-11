@@ -116,5 +116,5 @@ export type ConsultPayload = {
 };
 
 export type SubmitResult =
-  | { ok: true; crm_record_id: string; deduplicated: boolean }
+  | { ok: true; crm_record_id: string; deduplicated: boolean; onboarding_url?: string }
   | { ok: false; error_code: string };
