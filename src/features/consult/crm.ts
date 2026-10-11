@@ -146,7 +146,8 @@ export async function submitConsultToCRM(
     return { ok: false, error_code: "INVALID_PAYLOAD" };
   }
 
-  const response = await fetch("/api/consult/submit", {
+  const endpoint = import.meta.env.VITE_CONSULT_SUBMIT_PATH || "/api/consult/submit";
+  const response = await fetch(endpoint, {
     method: "POST",
     credentials: "same-origin",
     headers: {
