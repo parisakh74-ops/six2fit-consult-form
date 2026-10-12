@@ -218,10 +218,49 @@ describe("outcome integrity (server recomputation)", () => {
     expect(m.safety_outcome).toBe("RED_SPECIALIST");
     expect(kindOf(tamper(m, (p) => { p.safety_outcome = "GREEN"; p.hard_red_flags = []; }))).toBe("OUTCOME_MISMATCH");
   });
-  it("mirrors the current frontend rule: TS-03 is scored even when limitation is `no` (finding F1)", () => {
-    // The form does not reset ts_03_clearance when the user changes TS-01 back to "no".
+  it("F1 (approved): a stale TS-03 left in form state is ignored by the builder when limitation is `no`", () => {
     const p = payloadFrom({ ts_01_has_limitation: "no", ts_03_clearance: "yes" });
-    expect(p.hard_red_flags).toEqual(["exercise_clearance:training_banned"]);
+    expect(p.hard_red_flags).toEqual([]);
+    expect(p.exercise_clearance).toBeNull();
+    expect(p.safety_outcome).toBe("GREEN");
     expect(kindOf(p)).toBe("OK");
+  });
+});
+
+describe("F1: conditional TS-03 enforced independently by the server", () => {
+  const stale = (clearance: string) =>
+    tamper(payloadFrom(), (x) => {
+      x.exercise_limitation = "no";
+      x.exercise_clearance = clearance;
+    });
+
+  it.each(["yes", "no", "not_assessed"])("rejects TS-03=%s when TS-01 is no", (c) => {
+    expect(issuesOf(stale(c))).toContain("exercise_clearance:INCONSISTENT");
+    expect(kindOf(stale(c))).toBe("INVALID_PAYLOAD");
+  });
+
+  it("a stale ban cannot be smuggled in to alter the outcome (still not accepted)", () => {
+    expect(ok(stale("yes")).ok).toBe(false);
+  });
+
+  it("still requires TS-03 when TS-01 is active and accepts valid active answers", () => {
+    const p = payloadFrom({ ts_01_has_limitation: "yes", ts_02_categories: ["tendon"], ts_03_clearance: "yes", modules: { tendon: moduleAnswer() } });
+    expect(ok(p).ok).toBe(true);
+    expect(issuesOf(tamper(p, (x) => (x.exercise_clearance = null)))).toContain("exercise_clearance:REQUIRED");
+  });
+
+  it("D12: conflicting calculated values -> OUTCOME_MISMATCH with paths only, no values", () => {
+    const p = payloadFrom({ ts_01_has_limitation: "yes", ts_02_categories: ["tendon"], ts_03_clearance: "yes", modules: { tendon: moduleAnswer() } });
+    const bad = tamper(p, (x) => {
+      x.safety_outcome = "GREEN";
+      x.general_plan_eligible = true;
+    });
+    const r = validateConsultPayload(bad);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.kind).toBe("OUTCOME_MISMATCH");
+      expect(r.issues.map((i) => i.path)).toContain("safety_outcome");
+      for (const i of r.issues) expect(Object.keys(i).sort()).toEqual(["code", "path"]);
+    }
   });
 });

@@ -472,7 +472,11 @@ export function ConsultForm() {
               required
               options={ts01.options}
               value={values.ts_01_has_limitation}
-              onChange={(v) => set("ts_01_has_limitation", v)}
+              onChange={(v) => {
+                set("ts_01_has_limitation", v);
+                // TS-03 is only asked while TS-01 is active; drop a stale answer.
+                if (v === "no") set("ts_03_clearance", "");
+              }}
               error={err("ts_01_has_limitation")}
             />
             {values.ts_01_has_limitation && values.ts_01_has_limitation !== "no" ? (

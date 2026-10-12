@@ -210,6 +210,7 @@ function semanticIssues(p: z.infer<typeof baseSchema>): ValidationIssue[] {
   if (p.exercise_limitation === "no") {
     if (p.sport_categories.length > 0) add("sport_categories", "INCONSISTENT");
     if (Object.keys(p.modules).length > 0) add("modules", "INCONSISTENT");
+    if (p.exercise_clearance) add("exercise_clearance", "INCONSISTENT");
   } else {
     if (p.sport_categories.length === 0) add("sport_categories", "REQUIRED");
     if (!p.exercise_clearance) add("exercise_clearance", "REQUIRED");

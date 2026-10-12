@@ -261,3 +261,16 @@ describe("payload contract consult-2.1.0", () => {
     expect(payload.lead_full_name).toBe("Synthetic Test User");
   });
 });
+
+describe("F1: payload never carries a stale TS-03", () => {
+  it("exercise_clearance is null when TS-01 is no, even if the form state still holds a value", () => {
+    const payload = buildPayload({
+      answers: { ...base(), ts_01_has_limitation: "no", ts_02_categories: [], ts_03_clearance: "yes", modules: {} },
+      countryCode: "CA",
+      submissionId: "cns_test",
+    });
+    expect(payload.exercise_clearance).toBeNull();
+    expect(payload.safety_outcome).toBe("GREEN");
+    expect(payload.hard_red_flags).toEqual([]);
+  });
+});

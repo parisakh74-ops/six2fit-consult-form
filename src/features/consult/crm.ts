@@ -5,7 +5,7 @@ import {
   budgetQuestions,
   outcomeCopy,
 } from "./assessmentConfig";
-import { buildActiveModules, evaluateOutcome, getActiveCategories, normalizePhone } from "./outcome";
+import { buildActiveModules, evaluateOutcome, getActiveCategories, getActiveClearance, normalizePhone } from "./outcome";
 import type { ConsultAnswers, ConsultPayload, SubmitResult } from "./types";
 
 export function createSubmissionId(): string {
@@ -98,7 +98,7 @@ export function buildPayload(params: {
     blocker_details: answers.blocker_details?.trim() || null,
 
     exercise_limitation: answers.ts_01_has_limitation ?? null,
-    exercise_clearance: answers.ts_03_clearance ?? null,
+    exercise_clearance: getActiveClearance(answers) || null,
     sport_categories: getActiveCategories(answers),
     modules: buildActiveModules(answers),
     module_scores: outcome.module_scores,

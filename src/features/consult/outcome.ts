@@ -40,6 +40,17 @@ export function getActiveCategories(
   return [...new Set(answers.ts_02_categories ?? [])];
 }
 
+/**
+ * TS-03 only exists while TS-01 is active (not "no"). A stale TS-03 value kept
+ * after TS-01 goes back to "no" must never influence scoring, flags or payload.
+ */
+export function getActiveClearance(
+  answers: Pick<Partial<ConsultAnswers>, "ts_01_has_limitation" | "ts_03_clearance">,
+): string {
+  if (!answers.ts_01_has_limitation || answers.ts_01_has_limitation === "no") return "";
+  return answers.ts_03_clearance ?? "";
+}
+
 const MODULE_TEXT_KEYS = [
   "diagnosis",
   "onset",
@@ -72,7 +83,7 @@ export function buildActiveModules(
 /** Hard red flags selected inside sport modules, plus the TS-03 training ban. */
 export function collectHardRedFlags(answers: Partial<ConsultAnswers>): string[] {
   const flags: string[] = [];
-  const banOption = ts03.options.find((o) => o.value === answers.ts_03_clearance);
+  const banOption = ts03.options.find((o) => o.value === getActiveClearance(answers));
   if (banOption?.hardRedFlag) flags.push("exercise_clearance:training_banned");
 
   const categories = answers.ts_02_categories ?? [];
@@ -101,7 +112,7 @@ export function evaluateOutcome(answers: Partial<ConsultAnswers>): OutcomeResult
     if (!nutrition_red_reasons.includes("age_under_18")) nutrition_red_reasons.push("age_under_18");
   }
 
-  const clearanceOption = ts03.options.find((o) => o.value === answers.ts_03_clearance);
+  const clearanceOption = ts03.options.find((o) => o.value === getActiveClearance(answers));
   if (clearanceOption?.severity === "YELLOW") {
     nutrition_yellow_reasons.push("TS-03");
   }
@@ -124,7 +135,7 @@ export function evaluateOutcome(answers: Partial<ConsultAnswers>): OutcomeResult
   }
 
   const hard_red_flags =
-    activeCategories.length || answers.ts_03_clearance
+    activeCategories.length || getActiveClearance(answers)
       ? collectHardRedFlags({ ...answers, ts_02_categories: activeCategories })
       : [];
 
