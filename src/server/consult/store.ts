@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { link, mkdir, open, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SUBMISSION_ID_PATTERN } from "./contract";
+import { createCrmConsultStore } from "./crm/factory";
+import { StoreError } from "./errors";
 
 /**
  * A persisted consultation submission. `record_ref` is the stable reference returned to the
@@ -36,15 +38,7 @@ export interface ConsultStore {
   create(submissionId: string, record: StoredConsult): Promise<CreateResult>;
 }
 
-export class StoreError extends Error {
-  constructor(
-    public readonly kind: "UNAVAILABLE" | "CORRUPT" | "NOT_CONFIGURED",
-    message: string,
-  ) {
-    super(message);
-    this.name = "StoreError";
-  }
-}
+export { StoreError } from "./errors";
 
 const isErrno = (e: unknown, ...codes: string[]) =>
   typeof e === "object" && e !== null && codes.includes((e as NodeJS.ErrnoException).code ?? "");
@@ -163,13 +157,13 @@ export class FileConsultStore implements ConsultStore {
   }
 }
 
-/** Placeholder for the future Zoho CRM adapter; selected with SIX2FIT_CONSULT_STORE=crm. */
+/** Selects the store: `file` (default) or the Zoho CRM Sandbox adapter (`crm`, explicitly enabled). */
 export function createConsultStore(
   env: Record<string, string | undefined>,
   storageDir: string,
 ): ConsultStore {
   const kind = (env["SIX2FIT_CONSULT_STORE"] ?? "file").trim().toLowerCase();
   if (kind === "file") return new FileConsultStore(storageDir);
-  if (kind === "crm") throw new StoreError("NOT_CONFIGURED", "crm store is not implemented");
+  if (kind === "crm") return createCrmConsultStore(env);
   throw new StoreError("NOT_CONFIGURED", "unknown store");
 }

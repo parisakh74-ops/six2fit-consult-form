@@ -134,14 +134,15 @@ export function createConsultService(deps: ConsultServiceDeps) {
         created_at: new Date(now()).toISOString(),
       };
       const created = await deps.store.create(id, record);
-      if (created.status === "created") return done(success(id, payload, false, record.record_ref as string), "consult.created");
+      if (created.status === "created") return done(success(id, payload, false, created.record.record_ref ?? (record.record_ref as string)), "consult.created");
       // Lost a race with a concurrent identical/conflicting request.
       return sameSubmission(created.record, payload, hash)
         ? done(success(id, payload, true, created.record.record_ref ?? created.record.crm_record_id ?? recordRef(id)), "consult.deduplicated")
         : done(errorResult("SUBMISSION_CONFLICT"), "consult.conflict");
     } catch (error) {
       const kind = error instanceof StoreError ? error.kind : "UNEXPECTED";
-      log("consult.storage_failure", { kind, ms: now() - startedAt });
+      const code = error instanceof StoreError ? error.code : undefined;
+      log("consult.storage_failure", { kind, ...(code ? { code } : {}), ms: now() - startedAt });
       return errorResult("STORAGE_UNAVAILABLE");
     }
   }
