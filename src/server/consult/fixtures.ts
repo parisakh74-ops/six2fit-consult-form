@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- negative-test helper mutates arbitrary JSON */
 /** Test helpers: SYNTHETIC data only. Payloads are produced by the real frontend builder. */
 import { sportModules } from "../../features/consult/assessmentConfig";
 import { buildPayload } from "../../features/consult/crm";

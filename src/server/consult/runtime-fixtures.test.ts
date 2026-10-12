@@ -30,7 +30,7 @@ describe.skipIf(!out)("runtime fixtures", () => {
     const fixtures = {
       valid: plain(1),
       with_modules: modules,
-      conflicting_same_id: tamper(payloadFrom({}, newId(1)), (p) => (p.weight_kg = 71)),
+      conflicting_same_id: tamper(payloadFrom({}, newId(1)), (p) => { p.weight_kg = 71; p.onboarding_prefill["ON-09.kg"] = 71; }),
       concurrent_identical: plain(3),
       query_fallback: plain(4),
       old_version: tamper(payloadFrom({}, newId(5)), (p) => (p.form_version = "consult-2.0.0")),

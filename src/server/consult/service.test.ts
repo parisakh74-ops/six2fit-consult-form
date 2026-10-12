@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
+/* eslint-disable @typescript-eslint/no-explicit-any -- test helpers inspect loosely typed JSON bodies */
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -158,7 +159,7 @@ describe("failure and recovery", () => {
     writeFileSync(file, "{not json");
     const { service } = make();
     expect((await send(service, payloadFrom())).status).toBe(503);
-    expect(require("node:fs").readFileSync(file, "utf8")).toBe("{not json");
+    expect(readFileSync(file, "utf8")).toBe("{not json");
   });
 
   it("legacy records (v1 hash, stored onboarding_url) still deduplicate identical retries", async () => {
