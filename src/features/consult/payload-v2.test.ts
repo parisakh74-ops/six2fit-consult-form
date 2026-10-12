@@ -92,7 +92,7 @@ describe("payload contract consult-2.1.0", () => {
       ...base(),
       ts_01_has_limitation: "yes",
       ts_02_categories: [key],
-      ts_03_clearance: "cleared",
+      ts_03_clearance: "no",
       modules: { [key]: fullModule(flags) },
     };
     const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
@@ -121,7 +121,7 @@ describe("payload contract consult-2.1.0", () => {
       ...base(),
       ts_01_has_limitation: "yes",
       ts_02_categories: MODULE_KEYS,
-      ts_03_clearance: "cleared",
+      ts_03_clearance: "no",
       modules: Object.fromEntries(MODULE_KEYS.map((k) => [k, fullModule([])])),
     };
     const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
@@ -135,7 +135,7 @@ describe("payload contract consult-2.1.0", () => {
       ...base(),
       ts_01_has_limitation: "yes",
       ts_02_categories: ["tendon"],
-      ts_03_clearance: "cleared",
+      ts_03_clearance: "no",
       modules: {
         tendon: fullModule([]),
         cardiovascular: fullModule(["chest_pain"]), // filled earlier, then deselected
@@ -167,7 +167,7 @@ describe("payload contract consult-2.1.0", () => {
       ...base(),
       ts_01_has_limitation: "unsure",
       ts_02_categories: ["ligament"],
-      ts_03_clearance: "cleared",
+      ts_03_clearance: "no",
       modules: { ligament: fullModule([]) },
     };
     expect(getActiveCategories(answers)).toEqual(["ligament"]);
@@ -187,7 +187,7 @@ describe("payload contract consult-2.1.0", () => {
       ...base(),
       ts_01_has_limitation: "yes",
       ts_02_categories: ["other"],
-      ts_03_clearance: "cleared",
+      ts_03_clearance: "no",
       modules: {
         other: { diagnosis: "x", onset: "gt_6m", recovery: "improving", pain: "none", reaction: "fine", clearance: "cleared", notes: "   " },
       },
@@ -233,7 +233,7 @@ describe("payload contract consult-2.1.0", () => {
       ...base(),
       ts_01_has_limitation: "yes",
       ts_02_categories: ["surgery", "oncology"],
-      ts_03_clearance: "cleared",
+      ts_03_clearance: "no",
       modules: { surgery: fullModule(["bleeding"]), oncology: fullModule([]) },
     };
     const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });

@@ -2,7 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
-import { handleConsultSubmission } from "./routes/api/consult/submit";
+import { dispatchConsultRequest } from "./server/consult/http";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -48,15 +48,11 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
-      const url = new URL(request.url);
-      const isConsultSubmission = request.method === "POST" && (
-        url.pathname === "/api/consult/submit" ||
-        url.searchParams.get("six2fit_api") === "consult"
-      );
-
       // CloudLinux Passenger may rewrite application subpaths before TanStack's
-      // file router sees them. Dispatch the staging API at the server boundary.
-      if (isConsultSubmission) return await handleConsultSubmission(request);
+      // file router sees them. Dispatch the consult API at the server boundary.
+      // Business logic lives in src/server/consult/service.ts (single implementation).
+      const consult = await dispatchConsultRequest(request);
+      if (consult) return consult;
 
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
