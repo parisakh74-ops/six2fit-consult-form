@@ -162,6 +162,9 @@ export const exerciseScreeningTriggers = [
   "not_sure",
 ];
 
+/** Longest e-mail accepted: the CRM e-mail fields (Consultation Submissions, Leads, Contacts) hold 100 characters. */
+export const EMAIL_MAX_LENGTH = 100;
+
 export const limits = {
   age: { min: 14, max: 100 },
   height_cm: { min: 100, max: 250 },

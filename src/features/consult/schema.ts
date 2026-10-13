@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  EMAIL_MAX_LENGTH,
   budgetQuestions,
   limits,
   sportModuleByKey,
@@ -39,7 +40,7 @@ export const contactSchema = z.object({
   email: z
     .string()
     .trim()
-    .max(120)
+    .max(EMAIL_MAX_LENGTH, "ایمیل نباید بیشتر از ۱۰۰ کاراکتر باشد")
     .email("ایمیل معتبر نیست")
     .optional()
     .or(z.literal("")),

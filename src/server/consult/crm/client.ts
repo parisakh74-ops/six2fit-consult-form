@@ -153,8 +153,18 @@ export class ZohoClient {
     };
     const first = await attempt();
     if (first.status !== 401) return first;
+    // Missing scope also arrives as 401 but a new token cannot fix it.
+    if (first.json && first.json !== INVALID && typeof first.json === "object" && (first.json as { code?: unknown }).code === "OAUTH_SCOPE_MISMATCH") return first;
     this.token = null;
     return attempt();
+  }
+
+  /** A token without the needed scope is answered with HTTP 401 `OAUTH_SCOPE_MISMATCH` (documented): not an expired token. */
+  private assertScope(res: ZohoResponse): void {
+    const j = res.json;
+    if (res.status === 401 && j && j !== INVALID && typeof j === "object" && (j as { code?: unknown }).code === "OAUTH_SCOPE_MISMATCH") {
+      throw new StoreError("NOT_CONFIGURED", "oauth scope missing", "SCOPE_MISSING");
+    }
   }
 
   /**
@@ -170,17 +180,29 @@ export class ZohoClient {
     this.verifying = (async () => {
       try {
         const org = await this.request("GET", "/org");
-        const orgs = (org.json as { org?: Array<{ id?: unknown }> } | null | typeof INVALID);
-        const orgId = org.status === 200 && orgs && orgs !== INVALID && Array.isArray(orgs.org) ? orgs.org[0]?.id : undefined;
+        this.assertScope(org);
+        const orgs = (org.json as { org?: Array<{ id?: unknown; type?: unknown }> } | null | typeof INVALID);
+        const orgList = org.status === 200 && orgs && orgs !== INVALID && Array.isArray(orgs.org) ? orgs.org : [];
+        if (orgList.length > 1) throw new StoreError("NOT_CONFIGURED", "organisation is ambiguous", "ENV_UNVERIFIED");
+        const first = orgList[0];
+        const orgId = first?.id;
         if (typeof orgId !== "string" && typeof orgId !== "number") {
           throw new StoreError("NOT_CONFIGURED", "organisation could not be verified", "ENV_UNVERIFIED");
         }
         if (String(orgId) !== this.config.orgId) {
           throw new StoreError("NOT_CONFIGURED", "organisation mismatch", "ENV_MISMATCH");
         }
-        const mod = await this.request("GET", `/settings/modules/${encodeURIComponent(this.config.moduleApiName)}`);
+        // Documented `type` of GET /org: production | sandbox | bigin | developer.
+        if (first?.type !== "sandbox") {
+          throw new StoreError("NOT_CONFIGURED", "organisation is not a sandbox", "ENV_MISMATCH");
+        }
+        // Documented list endpoint (the single-module endpoint is not documented in the v8 pages reviewed).
+        const mod = await this.request("GET", "/settings/modules");
+        this.assertScope(mod);
         const mj = mod.json as { modules?: Array<{ api_name?: unknown; id?: unknown }> } | null | typeof INVALID;
-        const m = mod.status === 200 && mj && mj !== INVALID && Array.isArray(mj.modules) ? mj.modules[0] : undefined;
+        const matches = mod.status === 200 && mj && mj !== INVALID && Array.isArray(mj.modules) ? mj.modules.filter((x) => x.api_name === this.config.moduleApiName) : [];
+        if (matches.length > 1) throw new StoreError("NOT_CONFIGURED", "module is ambiguous", "ENV_UNVERIFIED");
+        const m = matches[0];
         const id = m && typeof m.id === "string" ? m.id : "";
         if (!m || m.api_name !== this.config.moduleApiName || id === "") {
           throw new StoreError("NOT_CONFIGURED", "module could not be verified", "ENV_UNVERIFIED");

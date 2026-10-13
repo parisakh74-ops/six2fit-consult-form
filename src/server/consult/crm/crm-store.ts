@@ -3,7 +3,7 @@ import { StoreError } from "../errors";
 import type { ConsultStore, CreateResult, StoredConsult } from "../store";
 import { INVALID, ZohoClient, ZohoTransportError, type ZohoResponse } from "./client";
 import type { CrmConfig } from "./config";
-import { buildCrmRecord, parseCrmRecord, READ_FIELDS, type CrmSubmissionView } from "./mapping";
+import { buildCrmRecord, parseCrmRecord, type CrmSubmissionView } from "./mapping";
 
 export type CrmStoreDeps = {
   client: ZohoClient;
@@ -72,18 +72,22 @@ export class CrmConsultStore implements ConsultStore {
     if (res.status === 204) return null;
     const list = this.dataList(res);
     if (list.length === 0) return null;
-    const first = list[0];
-    if (!isObj(first) || typeof first["id"] !== "string") throw new StoreError("UNAVAILABLE", "invalid crm response", "INVALID_RESPONSE");
-    if (list.length > 1) {
+    // Zoho documents `equals` in search as contains-like: keep only the exact (case-insensitive) Submission_ID.
+    const exact: string[] = [];
+    for (const item of list) {
+      if (!isObj(item) || typeof item["id"] !== "string") throw new StoreError("UNAVAILABLE", "invalid crm response", "INVALID_RESPONSE");
+      if (typeof item["Submission_ID"] === "string" && item["Submission_ID"].toLowerCase() === submissionId.toLowerCase()) exact.push(item["id"]);
+    }
+    if (exact.length > 1) {
       // Cannot happen with the unique constraint; never pick one silently.
       throw new StoreError("CORRUPT", "more than one record for a submission id", "DUPLICATE_RECORDS");
     }
-    return first["id"];
+    return exact[0] ?? null;
   }
 
   private async readById(recordId: string, submissionId: string): Promise<CrmSubmissionView> {
     if (!/^\d{6,25}$/.test(recordId)) throw new StoreError("UNAVAILABLE", "invalid crm response", "INVALID_RESPONSE");
-    const res = await this.call("GET", `/${this.deps.config.moduleApiName}/${recordId}`, { query: { fields: READ_FIELDS } });
+    const res = await this.call("GET", `/${this.deps.config.moduleApiName}/${recordId}`);
     if (res.status === 204) throw new StoreError("UNAVAILABLE", "record not readable yet", "READ_AFTER_WRITE");
     const list = this.dataList(res);
     return parseCrmRecord(list[0], submissionId);
@@ -112,6 +116,7 @@ export class CrmConsultStore implements ConsultStore {
   private classifyFailure(res: ZohoResponse): void {
     const s = res.status;
     if (s >= 200 && s < 300) return;
+    if (s === 401 && isObj(res.json) && res.json["code"] === "OAUTH_SCOPE_MISMATCH") throw new StoreError("UNAVAILABLE", "crm authorization failed", "FORBIDDEN");
     if (s === 401) throw new StoreError("UNAVAILABLE", "crm authentication failed", "AUTH_FAILED");
     if (s === 403) throw new StoreError("UNAVAILABLE", "crm authorization failed", "FORBIDDEN");
     if (s === 429) throw new StoreError("UNAVAILABLE", "crm rate limited", "RATE_LIMITED");
@@ -196,6 +201,9 @@ export class CrmConsultStore implements ConsultStore {
     | { kind: "retry-safe"; retryAfterMs: number | undefined }
     | { kind: "ambiguous"; code: string } {
     const s = res.status;
+    if (s === 401 && isObj(res.json) && res.json["code"] === "OAUTH_SCOPE_MISMATCH") {
+      return { kind: "fatal", error: new StoreError("UNAVAILABLE", "crm authorization failed", "FORBIDDEN") };
+    }
     if (s === 401) return { kind: "fatal", error: new StoreError("UNAVAILABLE", "crm authentication failed", "AUTH_FAILED") };
     if (s === 403) return { kind: "fatal", error: new StoreError("UNAVAILABLE", "crm authorization failed", "FORBIDDEN") };
     if (s === 429) return { kind: "retry-safe", retryAfterMs: res.retryAfterMs };

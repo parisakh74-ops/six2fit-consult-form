@@ -9,10 +9,10 @@ import type { StoredConsult } from "../store";
  * Rules:
  *  - `Raw_Payload_JSON` is the system of record for the answers (exact compact JSON accepted by the
  *    service). The parent fields and `Module_Answers` rows are derived, reportable copies.
- *  - Nothing is truncated. A questionnaire answer that does not fit its CRM field makes the mapping
- *    fail (`REJECTED`); only attribution convenience copies (landing page, e-mail) whose payload bound
- *    exceeds the CRM field length are left out of the structured copy and reported by name in
- *    `degraded` (the full value stays in `Raw_Payload_JSON`).
+ *  - Nothing is truncated. An answer or identity value that does not fit its CRM field (including the
+ *    e-mail, capped at 100 characters by the validator) makes the mapping fail (`REJECTED`); only the
+ *    attribution convenience copy `Landing_Page` (payload bound 300, CRM 255) is left out of the structured
+ *    copy and reported by name in `degraded` (the full value stays in `Raw_Payload_JSON`).
  *  - Picklist / multi-select values are checked against the CRM option sets before sending.
  *  - No upsert, no identity creation: the optional `Lead` / `Contact` lookups are plain ids.
  */
@@ -234,7 +234,8 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
   text(out, degraded, "WhatsApp", payload["whatsapp_phone_normalized"], CRM_TEXT_MAX);
   text(out, degraded, "WhatsApp_Dial_Code", payload["whatsapp_dial_code"], CRM_TEXT_MAX);
   text(out, degraded, "WhatsApp_Country", payload["whatsapp_country"], CRM_TEXT_MAX);
-  text(out, degraded, "Email", payload["email"], CRM_EMAIL_MAX, "degrade");
+  // E1: the validator caps the e-mail at the CRM limit; a longer value is refused, never left out.
+  text(out, degraded, "Email", payload["email"], CRM_EMAIL_MAX);
   option(out, "Consult_Channel", payload["consult_channel"]);
   multi(out, "Primary_Goals", payload["primary_goal"]);
   multi(out, "Adherence_Barriers", payload["adherence_barrier"]);
@@ -313,12 +314,6 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
 
 const RAW_PREFILL_MAX = 31_000;
 
-/** Fields requested when reading a submission back. */
-export const READ_FIELDS = [
-  "Name", "Submission_ID", "Payload_Hash", "Raw_Payload_JSON", "Received_At", "Created_Time",
-  "Status", "Lead", "Contact", "Identity_Match", SUBFORM_NAME,
-].join(",");
-
 export type CrmSubmissionView = {
   stored: StoredConsult;
   moduleRows: Array<Record<string, unknown>>;
@@ -350,12 +345,21 @@ export function parseCrmRecord(record: unknown, expectedSubmissionId: string): C
   // An answer edited in the CRM, or a truncated raw field, must never be taken for the original.
   if (fingerprint(payload) !== hash) return corrupt("HASH_MISMATCH");
   const createdAt = typeof record["Received_At"] === "string" ? record["Received_At"] : typeof record["Created_Time"] === "string" ? record["Created_Time"] : new Date(0).toISOString();
-  const rows = Array.isArray(record[SUBFORM_NAME]) ? (record[SUBFORM_NAME] as unknown[]).filter(isObj) : [];
+  const rawRows = record[SUBFORM_NAME];
+  if (rawRows !== undefined && rawRows !== null && !Array.isArray(rawRows)) return corrupt("SUBFORM_SHAPE");
+  const rows = Array.isArray(rawRows) ? (rawRows as unknown[]).filter(isObj) : [];
+  // The subform must carry exactly the modules of the stored payload (documented: subforms are returned only
+  // by an unrestricted single-record fetch). Missing, extra or duplicated rows mean the read is incomplete.
+  const expectedModules = isObj(payload["modules"]) ? Object.keys(payload["modules"]).sort() : [];
+  const rowModules = rows.map((r) => (typeof r["Module"] === "string" ? r["Module"] : "")).sort();
+  if (rows.length !== (Array.isArray(rawRows) ? rawRows.length : 0) || JSON.stringify(rowModules) !== JSON.stringify(expectedModules)) {
+    return corrupt("SUBFORM_INCOMPLETE");
+  }
   const ref = (v: unknown): string | null => (isObj(v) && typeof v["id"] === "string" ? v["id"] : null);
   return {
     stored: {
       version: 2,
-      submission_id: expectedSubmissionId,
+      submission_id: sid,
       payload_hash: hash,
       payload,
       record_ref: id,

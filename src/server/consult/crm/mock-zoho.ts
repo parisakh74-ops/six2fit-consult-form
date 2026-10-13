@@ -26,12 +26,13 @@ const json = (status: number, body: unknown, headers: Record<string, string> = {
 
 export class MockZoho {
   records: MockRecord[] = [];
-  requests: Array<{ method: string; path: string; auth: boolean }> = [];
+  requests: Array<{ method: string; path: string; auth: boolean; query: string }> = [];
   faults: Array<{ match: RegExp; method?: string; fault: Fault; times: number }> = [];
   tokenCalls = 0;
   validTokens = new Set<string>();
   orgId = MOCK_ORG_ID;
   moduleId = MOCK_MODULE_ID;
+  orgType = "sandbox";
   tokenApiDomain = MOCK_API_DOMAIN;
   /** Field length limit in characters (text 255, textarea fields 2000, raw 32000). */
   private nextId = 6223361000127060100n;
@@ -49,7 +50,7 @@ export class MockZoho {
     const header = init.headers["authorization"] ?? "";
     const auth = header.startsWith("Zoho-oauthtoken ");
     const tokenOk = auth && this.validTokens.has(header.replace("Zoho-oauthtoken ", ""));
-    this.requests.push({ method, path, auth });
+    this.requests.push({ method, path, auth, query: u.search });
 
     // Faults first (token endpoint included).
     for (const f of this.faults) {
@@ -85,14 +86,15 @@ export class MockZoho {
     if (u.origin !== MOCK_API_DOMAIN) return json(404, { code: "NOT_FOUND" });
     if (!tokenOk) return json(401, { code: "INVALID_TOKEN", message: "invalid oauth token", status: "error" });
 
-    if (method === "GET" && path === "/crm/v8/org") return json(200, { org: [{ id: this.orgId }] });
-    if (method === "GET" && path === "/crm/v8/settings/modules/Consultation_Submissions") {
-      return json(200, { modules: [{ api_name: "Consultation_Submissions", id: this.moduleId }] });
+    if (method === "GET" && path === "/crm/v8/org") return json(200, { org: [{ id: this.orgId, type: this.orgType, company_name: "Synthetic Org" }] });
+    if (method === "GET" && path === "/crm/v8/settings/modules") {
+      return json(200, { modules: [{ api_name: "Leads", id: "6223361000000002375" }, { api_name: "Consultation_Submissions", id: this.moduleId }] });
     }
     if (method === "POST" && path === "/crm/v8/Consultation_Submissions") return this.insert(init.body ?? "");
     if (method === "GET" && path === "/crm/v8/Consultation_Submissions/search") {
       const m = /^\(Submission_ID:equals:(.+)\)$/.exec(u.searchParams.get("criteria") ?? "");
-      const hit = m ? this.records.filter((r) => String(r["Submission_ID"]).toLowerCase() === (m[1] as string).toLowerCase()) : [];
+      // Zoho documents `equals` in search as contains-like: the mock reproduces that.
+      const hit = m ? this.records.filter((r) => String(r["Submission_ID"]).toLowerCase().includes((m[1] as string).toLowerCase())) : [];
       if (hit.length === 0) return new Response(null, { status: 204 });
       return json(200, { data: hit.map((r) => ({ id: r.id, Submission_ID: r["Submission_ID"] })), info: { count: hit.length } });
     }

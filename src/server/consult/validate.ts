@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   CONSENT_VERSION,
+  EMAIL_MAX_LENGTH,
   FORM_VERSION,
   allHealthFlags,
   budgetQuestions,
@@ -84,7 +85,7 @@ const baseSchema = z
     whatsapp_phone_normalized: z.string().regex(/^\+\d{7,15}$/),
     whatsapp_dial_code: z.enum(DIAL_CODES as [string, ...string[]]),
     whatsapp_country: z.union([countryEnum, z.literal(""), z.null()]),
-    email: z.union([z.string().max(120).email(), z.null()]),
+    email: z.union([z.string().max(EMAIL_MAX_LENGTH).email(), z.null()]),
     consult_channel: enumOf(consultChannelOptions),
 
     primary_goal: uniqueArray(enumOf(primaryGoalOptions)).refine((a) => a.length >= 1, { message: "REQUIRED" }),

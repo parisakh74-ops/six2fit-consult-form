@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { allHealthFlags } from "../../../features/consult/assessmentConfig";
+import { EMAIL_MAX_LENGTH, allHealthFlags } from "../../../features/consult/assessmentConfig";
 import { fingerprint } from "../canonical";
 import { MODULE_KEYS, FIRST_FLAG, moduleAnswer, payloadFrom, tamper } from "../fixtures";
 import { validateConsultPayload } from "../validate";
@@ -152,9 +152,9 @@ describe("mapping vs the audited CA Dev schema snapshot", () => {
 
 describe("known length gaps between the validated payload and the CRM structured fields", () => {
   it("lists every validated bound that exceeds its CRM field (documented risk register)", () => {
-    // payload bound (validate.ts) vs CRM length: only Email (120 > 100) and landing_page (300 > 255) exceed.
+    // payload bound (validate.ts) vs CRM length: only landing_page (300 > 255) exceeds after E1 (e-mail now 100).
     const gaps: Array<[string, number, number]> = [
-      ["email", 120, parent.get("Email")!.l!],
+      ["email", EMAIL_MAX_LENGTH, parent.get("Email")!.l!],
       ["landing_page", 300, parent.get("Landing_Page")!.l!],
       ["lead_full_name", 80, parent.get("Full_Name")!.l!],
       ["blocker_details", 500, parent.get("Blocker_Details")!.l!],
@@ -162,22 +162,18 @@ describe("known length gaps between the validated payload and the CRM structured
       ["utm_source", 120, parent.get("UTM_Source")!.l!],
       ["preferred_contact_timezone", 80, parent.get("Timezone")!.l!],
     ];
-    expect(gaps.filter(([, payloadMax, crmMax]) => payloadMax > crmMax).map(([n]) => n)).toEqual(["email", "landing_page"]);
+    expect(gaps.filter(([, payloadMax, crmMax]) => payloadMax > crmMax).map(([n]) => n)).toEqual(["landing_page"]);
+    expect(EMAIL_MAX_LENGTH).toBe(parent.get("Email")!.l);
   });
 
-  it("CURRENT behaviour: a 101-120 character e-mail is accepted by the validator but omitted from the structured Email field (kept in raw JSON only)", () => {
-    const local = "a".repeat(64);
-    const email = `${local}@${"b".repeat(30)}.example.test`; // 64 + 1 + 30 + 13 = 108 characters
+  it("an e-mail over the CRM limit is refused by the validator and by the mapping (never omitted)", () => {
+    const email = `${"a".repeat(64)}@${"b".repeat(30)}.example.test`; // 108 characters
     expect(email.length).toBeGreaterThan(100);
-    expect(email.length).toBeLessThanOrEqual(120);
     const payload = tamper(payloadFrom(), (p) => {
       p.email = email;
       p.onboarding_prefill["ON-07"] = email;
     });
-    expect(validateConsultPayload(payload).ok).toBe(true);
-    const { record, degraded } = buildCrmRecord(payload, OPTS);
-    expect(degraded).toContain("Email");
-    expect(record["Email"]).toBeUndefined();
-    expect(JSON.parse(record["Raw_Payload_JSON"] as string).email).toBe(email);
+    expect(validateConsultPayload(payload).ok).toBe(false);
+    expect(() => buildCrmRecord(payload, OPTS)).toThrow(/mapping: Email/);
   });
 });
