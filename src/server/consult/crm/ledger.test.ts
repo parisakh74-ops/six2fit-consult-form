@@ -10,7 +10,7 @@ import { createConsultService } from "../service";
 import { StoreError, type StoredConsult } from "../store";
 import { FIRST_FLAG, MODULE_KEYS, moduleAnswer, newId, payloadFrom } from "../fixtures";
 import { createCrmConsultStore } from "./factory";
-import { IdempotencyLedger, LedgerConsultStore, type LedgerEntry } from "./ledger";
+import { IdempotencyLedger, LedgerConsultStore, resolveManually, type LedgerEntry } from "./ledger";
 import type { CrmConsultStore } from "./crm-store";
 import { MOCK_ACCOUNTS_DOMAIN, MOCK_API_DOMAIN, MOCK_ORG_ID, MockZoho } from "./mock-zoho";
 
@@ -90,7 +90,7 @@ const fails = async (p: Promise<unknown>) => {
 const service = (store: LedgerConsultStore, logs: unknown[] = []) =>
   createConsultService({ store, tokenSecret: SECRET, onboardingBaseUrl: BASE, log: (e, f) => logs.push({ e, f }) });
 const send = (svc: ReturnType<typeof service>, payload: any) => svc.submit({ contentType: JSON_CT, idempotencyKey: payload.submission_id, body: JSON.stringify(payload) });
-const seed = (id: string, over: Partial<LedgerEntry>): LedgerEntry => ({ v: 1, id, gen: 1, fp: fingerprint(nine(id)), state: "in_progress", attempts: 1, started: T0, updated: T0, ...over });
+const seed = (id: string, over: Partial<LedgerEntry>): LedgerEntry => ({ v: 1, id, gen: 1, fp: fingerprint(nine(id)), state: "in_progress", phase: "sending", attempts: 1, started: T0, updated: T0, ...over });
 
 describe("root cause reproduction (raw adapter, no ledger)", () => {
   it("L8: with a non-atomic CRM, simultaneous identical creates make duplicate records", async () => {
@@ -144,16 +144,16 @@ describe("simultaneous requests (non-atomic CRM, several workers sharing the led
     expect(posts(w.zoho)).toBe(0);
   });
 
-  it("two requests racing to take over the same stale/unknown entry: one POST at most", async () => {
+  it("two requests racing to reconcile the same unknown entry: neither writes; both get a 503", async () => {
     const w = world();
     w.zoho.nonAtomicInsert = true;
     const id = newId(64);
     await new IdempotencyLedger(dir).claim(seed(id, { state: "unknown", updated: T0 }));
     w.advance(121_000);
     const rs = await Promise.allSettled([w.worker().store.create(id, recordFor(nine(id))), w.worker().store.create(id, recordFor(nine(id)))]);
-    expect(rs.filter((r) => r.status === "fulfilled")).toHaveLength(2);
-    expect(w.zoho.records).toHaveLength(1);
-    expect(posts(w.zoho)).toBe(1);
+    expect(rs.every((r) => r.status === "rejected")).toBe(true);
+    expect(posts(w.zoho)).toBe(0);
+    expect(w.zoho.records).toHaveLength(0);
   });
 });
 
@@ -185,16 +185,46 @@ describe("restart and persistence", () => {
     expect(w.zoho.records).toHaveLength(1);
   });
 
-  it("crash before the CRM write: after the lease and quiescence the lookup finds nothing and one write follows", async () => {
+  it("writer died BEFORE it recorded `sending`: no POST was ever started, so a fresh attempt is allowed after the lease", async () => {
     const w = world();
     const id = newId(67);
-    await new IdempotencyLedger(dir).claim(seed(id, { updated: w.clock.t }));
+    await new IdempotencyLedger(dir).claim(seed(id, { phase: "claimed", updated: w.clock.t }));
     w.advance(60_000);
     expect(await fails(w.worker({ waitMs: 2_000 }).store.create(id, recordFor(nine(id))))).toMatchObject({ code: "IN_PROGRESS" }); // writer may still be alive
     w.advance(100_000);
     const r = await w.worker().store.create(id, recordFor(nine(id)));
     expect(r.status).toBe("created");
     expect(w.zoho.records).toHaveLength(1);
+  });
+
+  it("writer died AFTER recording `sending` and the CRM has nothing: never an automatic second POST", async () => {
+    const w = world();
+    const id = newId(67);
+    await new IdempotencyLedger(dir).claim(seed(id, { phase: "sending", updated: w.clock.t }));
+    w.advance(200_000);
+    expect(await fails(w.worker().store.create(id, recordFor(nine(id))))).toMatchObject({ code: "UNRESOLVED_OUTCOME" });
+    expect(posts(w.zoho)).toBe(0);
+    expect(await new IdempotencyLedger(dir).current(id)).toMatchObject({ state: "needs_review" });
+  });
+
+  it("the ledger records `sending` durably before the POST leaves", async () => {
+    const w = world();
+    const id = newId(67);
+    let seen: string | undefined;
+    const { store } = w.worker();
+    const realFetch = w.zoho.fetch;
+    const ledger = new IdempotencyLedger(dir);
+    const inner = createCrmConsultStore(ENV, {
+      fetch: async (url, init) => {
+        if (init.method === "POST" && url.includes("/Consultation_Submissions")) seen = (await ledger.current(id))?.phase;
+        return realFetch(url, init);
+      },
+      now: () => w.clock.t,
+      sleep: async () => undefined,
+    }) as CrmConsultStore;
+    await new LedgerConsultStore(inner, ledger, { now: () => w.clock.t, sleep: async () => undefined }).create(id, recordFor(nine(id)));
+    expect(seen).toBe("sending");
+    expect(store).toBeDefined();
   });
 
   it("the ledger contains no answers", async () => {
@@ -262,33 +292,83 @@ describe("lost response and ambiguous timeouts", () => {
     expect(w.zoho.records).toHaveLength(1);
   });
 
-  it("even if the index is still lagging after the quiescence window, the CRM constraint (non-concurrent) prevents a duplicate", async () => {
+  it("a negative search after 120 s is not proof of failure: the persisted record is NOT written twice; a late hit settles it", async () => {
     const w = world();
     w.zoho.searchLag = true;
     const id = newId(72);
     w.zoho.failNext(/Consultation_Submissions$/, { kind: "persist-then-timeout" }, 1, "POST");
     expect((await send(service(w.worker().store), nine(id))).status).toBe(503);
     w.advance(121_000);
-    const r = await send(service(w.worker().store), nine(id));
-    expect(r.status).toBe(200);
+    const unresolved = await send(service(w.worker().store), nine(id));
+    expect(unresolved.status).toBe(503);
+    expect(posts(w.zoho)).toBe(1);
+    expect(await new IdempotencyLedger(dir).current(id)).toMatchObject({ state: "needs_review" });
+    // still unresolved an hour later while the index keeps lagging: still no write
+    w.advance(3_600_000);
+    expect((await send(service(w.worker().store), nine(id))).status).toBe(503);
+    expect(posts(w.zoho)).toBe(1);
+    // the index catches up: positive evidence, resolved without any write
+    w.zoho.searchLag = false;
+    w.advance(121_000); // re-checks are spaced by the quiescence window
+    const ok = await send(service(w.worker().store), nine(id));
+    expect(ok.status).toBe(200);
+    expect((ok.body as any).deduplicated).toBe(true);
+    expect(posts(w.zoho)).toBe(1);
     expect(w.zoho.records).toHaveLength(1);
   });
 
-  it("ambiguous timeout with nothing stored: 503, no write inside the window, one write after it", async () => {
+  it("ambiguous timeout with nothing stored: 503 for ever (needs_review) until an operator decides; no automatic second POST", async () => {
     const w = world();
     const id = newId(73);
     w.zoho.failNext(/Consultation_Submissions$/, { kind: "timeout" }, 1, "POST");
     expect((await send(service(w.worker().store), nine(id))).status).toBe(503);
-    expect(posts(w.zoho)).toBe(1);
-    w.advance(10_000);
-    expect((await send(service(w.worker().store), nine(id))).status).toBe(503);
-    expect(posts(w.zoho)).toBe(1);
-    w.advance(120_000);
+    for (const wait of [10_000, 120_000, 600_000]) {
+      w.advance(wait);
+      expect((await send(service(w.worker().store), nine(id))).status).toBe(503);
+      expect(posts(w.zoho)).toBe(1);
+    }
+    expect(await new IdempotencyLedger(dir).current(id)).toMatchObject({ state: "needs_review" });
+    // operator verified in the CRM that nothing exists and accepts the late-commit risk: explicit, audited release
+    const ledger = new IdempotencyLedger(dir);
+    const done = await resolveManually(ledger, id, { decision: "released", note: "PM checked CRM list and COQL: no record" }, w.clock.t);
+    expect(done).toMatchObject({ state: "released", manual: true });
     const r = await send(service(w.worker().store), nine(id));
     expect(r.status).toBe(200);
     expect((r.body as any).deduplicated).toBe(false);
     expect(posts(w.zoho)).toBe(2);
     expect(w.zoho.records).toHaveLength(1);
+  });
+
+  it("operator settles an unknown entry as created with a confirmed CRM record id: no write, normal deduplicated answer", async () => {
+    const w = world();
+    w.zoho.searchLag = true;
+    const id = newId(73);
+    w.zoho.failNext(/Consultation_Submissions$/, { kind: "persist-then-timeout" }, 1, "POST");
+    await send(service(w.worker().store), nine(id));
+    const rid = String(w.zoho.records[0]!.id);
+    await resolveManually(new IdempotencyLedger(dir), id, { decision: "created", crmRecordId: rid, note: "record seen in CRM UI by Submission_ID" }, w.clock.t);
+    const r = await send(service(w.worker().store), nine(id));
+    expect(r.status).toBe(200);
+    expect((r.body as any).crm_record_id).toBe(rid);
+    expect((r.body as any).deduplicated).toBe(true);
+    expect(posts(w.zoho)).toBe(1);
+  });
+
+  it("manual resolution is refused for settled entries, live writers, missing notes and malformed ids", async () => {
+    const w = world();
+    const ledger = new IdempotencyLedger(dir);
+    const live = newId(82);
+    await ledger.claim(seed(live, { updated: w.clock.t }));
+    await expect(resolveManually(ledger, live, { decision: "released", note: "looks absent to me" }, w.clock.t)).rejects.toMatchObject({ code: "LEDGER_NOT_RESOLVABLE" });
+    const done = newId(83);
+    await send(service(w.worker().store), nine(done));
+    await expect(resolveManually(ledger, done, { decision: "released", note: "should not be allowed" }, w.clock.t)).rejects.toMatchObject({ code: "LEDGER_NOT_RESOLVABLE" });
+    const unk = newId(84);
+    await ledger.claim(seed(unk, { state: "unknown", updated: T0 }));
+    await expect(resolveManually(ledger, unk, { decision: "released", note: "x" }, w.clock.t)).rejects.toMatchObject({ code: "LEDGER_NOTE_REQUIRED" });
+    await expect(resolveManually(ledger, unk, { decision: "created", crmRecordId: "abc", note: "valid note text" }, w.clock.t)).rejects.toMatchObject({ code: "INVALID_RECORD_ID" });
+    await expect(resolveManually(ledger, newId(85), { decision: "released", note: "valid note text" }, w.clock.t)).rejects.toMatchObject({ code: "LEDGER_NOT_FOUND" });
+    expect(posts(w.zoho)).toBe(1);
   });
 
   it("a conflicting payload while the first outcome is unknown is refused (409), not written", async () => {

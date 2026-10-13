@@ -21,17 +21,22 @@ import type { CrmConsultStore } from "./crm-store";
  * creating the NEXT generation, again with exactly one winner.
  *
  * States: in_progress (a writer owns it) | created (CRM id known) | unknown (a write may have happened) |
+ * needs_review (unknown, and a lookup after the quiescence window still found nothing) |
  * released (definitely nothing written) | integrity (more than one CRM record exists: never resolved silently).
  * The ledger holds no answers: ids, the payload fingerprint, the CRM record id, state and timestamps only.
  *
  * Rules:
  *  - Only a writer holding the newest generation sends a POST, and only once per attempt (no blind retry).
- *  - A search that finds nothing is not proof of absence: an unknown outcome is only re-examined after a
- *    quiescence window (default 120 s, > 5x the measured index lag), and the re-examination looks first.
+ *  - A search that finds nothing is NEVER proof of absence (index lag, no authoritative negative read exists).
+ *    An unknown outcome is therefore never turned into a second POST automatically. It is re-examined by lookup
+ *    after a quiescence window (default 120 s): a hit settles it (`created`); no hit leaves it `needs_review`
+ *    (503 for the client) until a hit appears later or an operator decides (`resolveManually`, audited).
+ *  - The only automatic path back to a write is proof that no POST was ever started: the writer records
+ *    `phase: "sending"` in the ledger BEFORE the POST, so a dead writer still in `phase: "claimed"` never sent one.
  *  - Anything that is not a confirmed create/exists answer is an error (HTTP 503), never a success.
  */
 
-export type LedgerState = "in_progress" | "created" | "unknown" | "released" | "integrity";
+export type LedgerState = "in_progress" | "created" | "unknown" | "needs_review" | "released" | "integrity";
 
 export type LedgerEntry = {
   v: 1;
@@ -40,6 +45,11 @@ export type LedgerEntry = {
   /** Canonical fingerprint of the first accepted payload (not the answers themselves). */
   fp: string;
   state: LedgerState;
+  /** in_progress only: "claimed" = no POST started yet; "sending" = a POST may be in flight; "reconciling" = lookup in progress. */
+  phase?: "claimed" | "sending" | "reconciling";
+  /** Set when an operator settled the entry (audit trail). */
+  manual?: boolean;
+  note?: string;
   crm_id?: string;
   code?: string;
   attempts: number;
@@ -47,7 +57,7 @@ export type LedgerEntry = {
   updated: number;
 };
 
-const STATES = new Set<LedgerState>(["in_progress", "created", "unknown", "released", "integrity"]);
+const STATES = new Set<LedgerState>(["in_progress", "created", "unknown", "needs_review", "released", "integrity"]);
 const GEN_FILE = /^g(\d{1,9})\.json$/;
 const isErrno = (e: unknown, ...codes: string[]) =>
   typeof e === "object" && e !== null && codes.includes((e as NodeJS.ErrnoException).code ?? "");
@@ -203,14 +213,14 @@ export class LedgerConsultStore implements ConsultStore {
     for (let round = 0; round < 8; round += 1) {
       const cur = await this.ledger.current(id);
       if (cur === null) {
-        const mine: LedgerEntry = { v: 1, id, gen: 1, fp, state: "in_progress", attempts: 1, started: now(), updated: now() };
+        const mine: LedgerEntry = { v: 1, id, gen: 1, fp, state: "in_progress", phase: "claimed", attempts: 1, started: now(), updated: now() };
         if (await this.ledger.claim(mine)) return this.write(mine, record);
         continue; // lost the race: re-read
       }
       if (cur.state === "integrity") throw new StoreError("CORRUPT", "more than one record for a submission id", "DUPLICATE_RECORDS");
       if (cur.state === "created") return { status: "exists", record: stub(cur, cur.updated) };
       if (cur.state === "released") {
-        const mine: LedgerEntry = { v: 1, id, gen: cur.gen + 1, fp, state: "in_progress", attempts: cur.attempts + 1, started: now(), updated: now() };
+        const mine: LedgerEntry = { v: 1, id, gen: cur.gen + 1, fp, state: "in_progress", phase: "claimed", attempts: cur.attempts + 1, started: now(), updated: now() };
         if (await this.ledger.claim(mine)) return this.write(mine, record);
         continue;
       }
@@ -225,12 +235,22 @@ export class LedgerConsultStore implements ConsultStore {
         await this.waitForChange(id, cur.gen);
         continue;
       }
-      // unknown, or in_progress whose writer is gone (lease expired): treat as unknown.
+      if (cur.state === "in_progress" && cur.phase === "claimed") {
+        // The writer died before it ever recorded `sending`: no POST was started, so a fresh attempt is safe.
+        const mine: LedgerEntry = { v: 1, id, gen: cur.gen + 1, fp, state: "in_progress", phase: "claimed", attempts: cur.attempts + 1, started: now(), updated: now() };
+        if (await this.ledger.claim(mine)) {
+          this.log("ledger.takeover_unsent", { attempts: mine.attempts });
+          return this.write(mine, record);
+        }
+        continue;
+      }
+      // unknown / needs_review, or a writer that may have sent a POST and is gone: the outcome is UNKNOWN.
+      // No automatic write from here on. Only a lookup, and only after the quiescence window.
       if (age < this.quiesce) throw new StoreError("UNAVAILABLE", "outcome of an earlier attempt is still unknown", "OUTCOME_UNKNOWN");
-      const mine: LedgerEntry = { v: 1, id, gen: cur.gen + 1, fp, state: "in_progress", attempts: cur.attempts + 1, started: cur.started, updated: now() };
+      const mine: LedgerEntry = { v: 1, id, gen: cur.gen + 1, fp: cur.fp, state: "in_progress", phase: "reconciling", attempts: cur.attempts, started: cur.started, updated: now() };
       if (!(await this.ledger.claim(mine))) continue;
       this.log("ledger.reconcile", { attempts: mine.attempts });
-      return this.reconcileThenWrite(mine, cur, record);
+      return this.reconcileOnly(mine, cur);
     }
     throw new StoreError("UNAVAILABLE", "could not settle idempotency state", "LEDGER_CONTENDED");
   }
@@ -246,22 +266,37 @@ export class LedgerConsultStore implements ConsultStore {
     }
   }
 
-  private async reconcileThenWrite(mine: LedgerEntry, previous: LedgerEntry, record: StoredConsult): Promise<CreateResult> {
+  /**
+   * Lookup only. A hit is positive evidence and settles the entry. No hit is NOT evidence that the original write
+   * failed, so the entry stays unresolved (`needs_review`) and the client gets a 503; it is never a fresh submission.
+   */
+  private async reconcileOnly(mine: LedgerEntry, previous: LedgerEntry): Promise<CreateResult> {
+    const back = (state: LedgerState, extra: Partial<LedgerEntry> = {}): LedgerEntry => {
+      const { phase: _phase, ...rest } = mine;
+      return { ...rest, state, ...extra };
+    };
+    const unchanged: LedgerState = previous.state === "in_progress" ? "unknown" : previous.state;
     let found: string | null;
     try {
       found = await this.inner.lookupId(mine.id);
     } catch (e) {
-      // Lookup failed: nothing learned. Hand the state back as unknown with the original timestamp.
-      await this.settle({ ...mine, state: e instanceof StoreError && e.kind === "CORRUPT" ? "integrity" : "unknown", updated: e instanceof StoreError && e.kind === "CORRUPT" ? this.opts.now() : previous.updated, ...(e instanceof StoreError && e.code ? { code: e.code } : {}) });
+      // Lookup failed: nothing learned. Hand the state back unchanged (original timestamp, original state).
+      const corrupt = e instanceof StoreError && e.kind === "CORRUPT";
+      await this.settle(back(corrupt ? "integrity" : unchanged, { updated: corrupt ? this.opts.now() : previous.updated, ...(e instanceof StoreError && e.code ? { code: e.code } : {}) }));
       throw e;
     }
-    if (found === null) return this.write(mine, record);
+    if (found === null) {
+      this.log("ledger.needs_review", { attempts: mine.attempts });
+      await this.settle(back("needs_review", { updated: this.opts.now(), code: "UNRESOLVED_OUTCOME" }));
+      throw new StoreError("UNAVAILABLE", "outcome of an earlier attempt could not be confirmed", "UNRESOLVED_OUTCOME");
+    }
     try {
       const view = await this.inner.readRecord(found, mine.id);
-      await this.settle({ ...mine, fp: view.stored.payload_hash, state: "created", crm_id: found, updated: this.opts.now() });
+      await this.settle(back("created", { fp: view.stored.payload_hash, crm_id: found, updated: this.opts.now() }));
       return { status: "exists", record: view.stored };
     } catch (e) {
-      await this.settle({ ...mine, state: e instanceof StoreError && e.kind === "CORRUPT" ? "integrity" : "unknown", updated: previous.updated, crm_id: found });
+      const corrupt = e instanceof StoreError && e.kind === "CORRUPT";
+      await this.settle(back(corrupt ? "integrity" : unchanged, { updated: corrupt ? this.opts.now() : previous.updated, crm_id: found }));
       throw e;
     }
   }
@@ -269,6 +304,13 @@ export class LedgerConsultStore implements ConsultStore {
   /** The single place where a POST can happen: the caller owns the newest generation. */
   private async write(mine: LedgerEntry, record: StoredConsult): Promise<CreateResult> {
     let result: CreateResult;
+    try {
+      // Durable "a POST may start now" marker BEFORE the request: if this process dies from here on, the outcome is unknown.
+      await this.ledger.update({ ...mine, phase: "sending", updated: this.opts.now() });
+    } catch (e) {
+      await this.settle({ ...mine, state: "released", updated: this.opts.now(), code: "LEDGER_IO" });
+      throw e;
+    }
     try {
       result = await this.inner.create(mine.id, record);
     } catch (e) {
@@ -291,4 +333,38 @@ export class LedgerConsultStore implements ConsultStore {
       this.log("ledger.update_failed", { state: entry.state });
     }
   }
+}
+
+export type ManualDecision =
+  | { decision: "created"; crmRecordId: string; note: string }
+  /** The operator verified in the CRM, by an authoritative view and after the index lag, that no record exists, and accepts that a late commit of the first request is still possible. */
+  | { decision: "released"; note: string };
+
+/**
+ * Operator action for an entry that automation must not settle (`unknown`, `needs_review`, or an `in_progress`
+ * entry whose writer is gone after a POST may have started). Creates the next generation (earlier generations are
+ * kept as the audit trail) and never touches the CRM. Refuses entries that are settled or have a live writer.
+ */
+export async function resolveManually(ledger: IdempotencyLedger, id: string, d: ManualDecision, now: number, leaseMs = 150_000): Promise<LedgerEntry> {
+  const cur = await ledger.current(id);
+  if (!cur) throw new StoreError("REJECTED", "no ledger entry", "LEDGER_NOT_FOUND");
+  const open = cur.state === "unknown" || cur.state === "needs_review" || (cur.state === "in_progress" && cur.phase !== "claimed" && now - cur.updated >= leaseMs);
+  if (!open) throw new StoreError("REJECTED", `entry is ${cur.state}; nothing to resolve`, "LEDGER_NOT_RESOLVABLE");
+  if (d.note.trim().length < 8) throw new StoreError("REJECTED", "a note describing the evidence is required", "LEDGER_NOTE_REQUIRED");
+  if (d.decision === "created" && !/^\d{6,25}$/.test(d.crmRecordId)) throw new StoreError("REJECTED", "invalid CRM record id", "INVALID_RECORD_ID");
+  const next: LedgerEntry = {
+    v: 1,
+    id,
+    gen: cur.gen + 1,
+    fp: cur.fp,
+    state: d.decision,
+    attempts: cur.attempts,
+    started: cur.started,
+    updated: now,
+    manual: true,
+    note: d.note.slice(0, 300),
+    ...(d.decision === "created" ? { crm_id: d.crmRecordId } : {}),
+  };
+  if (!(await ledger.claim(next))) throw new StoreError("UNAVAILABLE", "entry changed concurrently; re-read and retry", "LEDGER_CONTENDED");
+  return next;
 }
