@@ -44,6 +44,21 @@ const hostOf = (url: string): string => {
   }
 };
 
+const isHttps = (url: string): boolean => {
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+/** `sandbox.zohoapis.<dc>` and `www.zohoapis.<dc>` of the same data centre `<dc>` (configured host is the sandbox one). */
+const sameDataCentre = (returnedHost: string, configuredSandboxHost: string): boolean => {
+  const m = /^sandbox\.zohoapis\.(.+)$/.exec(configuredSandboxHost);
+  if (!m) return false;
+  return returnedHost === configuredSandboxHost || returnedHost === `www.zohoapis.${m[1]}`;
+};
+
 export class ZohoClient {
   private token: Token | null = null;
   private refreshing: Promise<Token> | null = null;
@@ -116,9 +131,11 @@ export class ZohoClient {
         if (res.status !== 200 || j === null || j === INVALID || typeof j !== "object" || typeof j.access_token !== "string" || j.access_token === "") {
           throw new StoreError("UNAVAILABLE", "token refresh failed", "AUTH_FAILED");
         }
-        // Fail closed: the token must belong to the configured Sandbox API domain.
-        if (typeof j.api_domain !== "string" || hostOf(j.api_domain) !== hostOf(this.config.apiDomain)) {
-          throw new StoreError("NOT_CONFIGURED", "token api_domain does not match the configured sandbox domain", "ENV_MISMATCH");
+        // Fail closed: the returned api_domain must be the Sandbox host or the generic host of the SAME data centre
+        // (observed: a Sandbox grant returns https://www.zohoapis.<dc>). It is never used for requests; the configured
+        // Sandbox host is. Sandbox identity is proven by the organisation zgid + type (verifyEnvironment).
+        if (typeof j.api_domain !== "string" || !isHttps(j.api_domain) || !sameDataCentre(hostOf(j.api_domain), hostOf(this.config.apiDomain))) {
+          throw new StoreError("NOT_CONFIGURED", "token api_domain does not belong to the configured data centre", "ENV_MISMATCH");
         }
         const lifetime = typeof j.expires_in === "number" && j.expires_in > 0 ? j.expires_in : 3600;
         this.token = { value: j.access_token, expiresAt: this.deps.now() + lifetime * 1000 };
@@ -181,16 +198,22 @@ export class ZohoClient {
       try {
         const org = await this.request("GET", "/org");
         this.assertScope(org);
-        const orgs = (org.json as { org?: Array<{ id?: unknown; type?: unknown }> } | null | typeof INVALID);
+        const orgs = (org.json as { org?: Array<{ id?: unknown; zgid?: unknown; type?: unknown }> } | null | typeof INVALID);
         const orgList = org.status === 200 && orgs && orgs !== INVALID && Array.isArray(orgs.org) ? orgs.org : [];
         if (orgList.length > 1) throw new StoreError("NOT_CONFIGURED", "organisation is ambiguous", "ENV_UNVERIFIED");
         const first = orgList[0];
-        const orgId = first?.id;
-        if (typeof orgId !== "string" && typeof orgId !== "number") {
+        const zgid = first?.zgid;
+        const apiId = first?.id;
+        const present = (v: unknown) => (typeof v === "string" && v !== "") || typeof v === "number";
+        if (!present(zgid) || !present(apiId)) {
           throw new StoreError("NOT_CONFIGURED", "organisation could not be verified", "ENV_UNVERIFIED");
         }
-        if (String(orgId) !== this.config.orgId) {
+        // Observed contract: the CRM UI "Org ID" is the API `zgid`; the API `id` is a different number.
+        if (String(zgid) !== this.config.orgZgid) {
           throw new StoreError("NOT_CONFIGURED", "organisation mismatch", "ENV_MISMATCH");
+        }
+        if (this.config.orgApiId !== undefined && String(apiId) !== this.config.orgApiId) {
+          throw new StoreError("NOT_CONFIGURED", "organisation api id mismatch", "ENV_MISMATCH");
         }
         // Documented `type` of GET /org: production | sandbox | bigin | developer.
         if (first?.type !== "sandbox") {

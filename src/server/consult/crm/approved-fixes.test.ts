@@ -17,7 +17,7 @@ const ENV: Record<string, string> = {
   SIX2FIT_CONSULT_STORE: "crm",
   SIX2FIT_CONSULT_CRM_ENABLED: "true",
   SIX2FIT_ZOHO_ENVIRONMENT: "sandbox",
-  SIX2FIT_ZOHO_ORG_ID: MOCK_ORG_ID,
+  SIX2FIT_ZOHO_ORG_ZGID: MOCK_ORG_ID,
   SIX2FIT_ZOHO_API_DOMAIN: MOCK_API_DOMAIN,
   SIX2FIT_ZOHO_ACCOUNTS_DOMAIN: MOCK_ACCOUNTS_DOMAIN,
   SIX2FIT_ZOHO_MODULE_ID_PREFIX: "6223361000",
@@ -202,7 +202,8 @@ describe("D3 Sandbox environment verification", () => {
   });
 
   it("a missing organisation type, id or an empty/ambiguous organisation list is refused", async () => {
-    for (const body of [{ org: [{ id: MOCK_ORG_ID }] }, { org: [{ type: "sandbox" }] }, { org: [] }, { org: [{ id: MOCK_ORG_ID, type: "sandbox" }, { id: MOCK_ORG_ID, type: "sandbox" }] }, {}]) {
+    const one = { id: "6223361000000000999", zgid: MOCK_ORG_ID, type: "sandbox" };
+    for (const body of [{ org: [{ id: "6223361000000000999", zgid: MOCK_ORG_ID }] }, { org: [{ zgid: MOCK_ORG_ID, type: "sandbox" }] }, { org: [{ id: "6223361000000000999", type: "sandbox" }] }, { org: [] }, { org: [one, one] }, {}]) {
       const { zoho, store } = setup();
       zoho.failNext(/\/org$/, { kind: "status", status: 200, body }, 1);
       expect(await verified(zoho, store)).toMatchObject({ kind: "NOT_CONFIGURED" });
@@ -248,7 +249,32 @@ describe("D3 Sandbox environment verification", () => {
     noWrite(zoho);
   });
 
-  it("the token's api_domain must equal the configured Sandbox endpoint", async () => {
+  it("observed contract: the API id is a different number than the zgid; comparing the UI Org ID with the API id is refused", async () => {
+    const { zoho, store } = setup();
+    zoho.orgApiId = MOCK_ORG_ID; // an org whose API id equals the expected zgid is NOT the expected org unless its zgid matches
+    zoho.orgId = "111111111";
+    expect(await verified(zoho, store)).toMatchObject({ code: "ENV_MISMATCH" });
+    noWrite(zoho);
+  });
+
+  it("an optional pin of the organisation API id is enforced", async () => {
+    const zoho = new MockZoho();
+    const store = createCrmConsultStore({ ...ENV, SIX2FIT_ZOHO_ORG_API_ID: "6223361000000000111" }, { fetch: zoho.fetch, sleep: async () => undefined }) as CrmConsultStore;
+    expect(await verified(zoho, store)).toMatchObject({ code: "ENV_MISMATCH" });
+    noWrite(zoho);
+    const ok = new MockZoho();
+    const store2 = createCrmConsultStore({ ...ENV, SIX2FIT_ZOHO_ORG_API_ID: ok.orgApiId }, { fetch: ok.fetch, sleep: async () => undefined }) as CrmConsultStore;
+    expect((await store2.create(newId(45), rec(payloadFrom({}, newId(45))))).status).toBe("created");
+  });
+
+  it("the token's api_domain must belong to the configured data centre (generic www host accepted, never used for requests)", async () => {
+    const { zoho, store } = setup();
+    zoho.tokenApiDomain = "https://www.zohoapis.com";
+    expect((await store.create(newId(46), rec(payloadFrom({}, newId(46))))).status).toBe("created");
+    expect(zoho.requests.every((r) => r.path === "/oauth/v2/token" || r.path.startsWith("/crm/v8/"))).toBe(true);
+  });
+
+  it("the token's api_domain of another data centre is refused", async () => {
     const { zoho, store } = setup();
     zoho.tokenApiDomain = "https://sandbox.zohoapis.eu";
     expect(await verified(zoho, store)).toMatchObject({ code: "ENV_MISMATCH" });

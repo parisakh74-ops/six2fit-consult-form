@@ -13,7 +13,7 @@ const ENV: Record<string, string> = {
   SIX2FIT_CONSULT_STORE: "crm",
   SIX2FIT_CONSULT_CRM_ENABLED: "true",
   SIX2FIT_ZOHO_ENVIRONMENT: "sandbox",
-  SIX2FIT_ZOHO_ORG_ID: MOCK_ORG_ID,
+  SIX2FIT_ZOHO_ORG_ZGID: MOCK_ORG_ID,
   SIX2FIT_ZOHO_API_DOMAIN: MOCK_API_DOMAIN,
   SIX2FIT_ZOHO_ACCOUNTS_DOMAIN: MOCK_ACCOUNTS_DOMAIN,
   SIX2FIT_ZOHO_MODULE_ID_PREFIX: "6223361000",
@@ -418,7 +418,8 @@ describe("environment safeguards (fail closed)", () => {
     ["lookalike domain", { SIX2FIT_ZOHO_API_DOMAIN: "https://sandbox.zohoapis.com.evil.test" }],
     ["http api domain", { SIX2FIT_ZOHO_API_DOMAIN: "http://sandbox.zohoapis.com" }],
     ["accounts lookalike", { SIX2FIT_ZOHO_ACCOUNTS_DOMAIN: "https://accounts.zoho.com.evil.test" }],
-    ["missing org id", { SIX2FIT_ZOHO_ORG_ID: "" }],
+    ["missing org zgid", { SIX2FIT_ZOHO_ORG_ZGID: "" }],
+    ["malformed org api id", { SIX2FIT_ZOHO_ORG_API_ID: "12ab" }],
     ["production id prefix", { SIX2FIT_ZOHO_MODULE_ID_PREFIX: "6067417000" }],
     ["missing prefix", { SIX2FIT_ZOHO_MODULE_ID_PREFIX: "" }],
     ["missing client id", { SIX2FIT_ZOHO_CLIENT_ID: "" }],
@@ -455,11 +456,16 @@ describe("environment safeguards (fail closed)", () => {
     expect(await fails(store.get(newId(30)))).toMatchObject({ code: "ENV_MISMATCH" });
   });
 
-  it("18: token issued for another api_domain -> NOT_CONFIGURED, no write", async () => {
-    const { zoho, store } = setup();
-    zoho.tokenApiDomain = "https://www.zohoapis.com";
-    expect(await fails(store.create(newId(30), recordFor(nine(newId(30)))))).toMatchObject({ kind: "NOT_CONFIGURED", code: "ENV_MISMATCH" });
-    expect(posts(zoho)).toBe(0);
+  it("18: token api_domain: generic www host of the same data centre is accepted (observed), other hosts/data centres are refused", async () => {
+    const ok = setup();
+    ok.zoho.tokenApiDomain = "https://www.zohoapis.com";
+    expect((await ok.store.create(newId(30), recordFor(nine(newId(30))))).status).toBe("created");
+    for (const bad of ["https://www.zohoapis.eu", "https://developer.zohoapis.com", "https://evil.example", "http://www.zohoapis.com", "not a url"]) {
+      const { zoho, store } = setup();
+      zoho.tokenApiDomain = bad;
+      expect(await fails(store.create(newId(30), recordFor(nine(newId(30)))))).toMatchObject({ kind: "NOT_CONFIGURED", code: "ENV_MISMATCH" });
+      expect(posts(zoho)).toBe(0);
+    }
   });
 
   it("18: unreadable organisation or module answers cannot be verified -> no write", async () => {

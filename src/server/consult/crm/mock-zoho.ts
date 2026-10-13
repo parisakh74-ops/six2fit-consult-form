@@ -5,7 +5,9 @@
  */
 import type { FetchLike } from "./client";
 
+/** Synthetic identifiers shaped like the observed CA Dev contract: UI "Org ID" = API zgid; API id is another number. */
 export const MOCK_ORG_ID = "850000000";
+export const MOCK_ORG_API_ID = "6223361000000000999";
 export const MOCK_MODULE_ID = "6223361000127040089";
 export const MOCK_API_DOMAIN = "https://sandbox.zohoapis.com";
 export const MOCK_ACCOUNTS_DOMAIN = "https://accounts.zoho.com";
@@ -30,10 +32,12 @@ export class MockZoho {
   faults: Array<{ match: RegExp; method?: string; fault: Fault; times: number }> = [];
   tokenCalls = 0;
   validTokens = new Set<string>();
-  orgId = MOCK_ORG_ID;
+  orgId = MOCK_ORG_ID; // the zgid
+  orgApiId = MOCK_ORG_API_ID;
   moduleId = MOCK_MODULE_ID;
   orgType = "sandbox";
-  tokenApiDomain = MOCK_API_DOMAIN;
+  /** Observed: a Sandbox grant returns the generic host. */
+  tokenApiDomain = "https://www.zohoapis.com";
   /** Field length limit in characters (text 255, textarea fields 2000, raw 32000). */
   private nextId = 6223361000127060100n;
   /** Zoho counts characters; the mock uses code points. */
@@ -86,7 +90,7 @@ export class MockZoho {
     if (u.origin !== MOCK_API_DOMAIN) return json(404, { code: "NOT_FOUND" });
     if (!tokenOk) return json(401, { code: "INVALID_TOKEN", message: "invalid oauth token", status: "error" });
 
-    if (method === "GET" && path === "/crm/v8/org") return json(200, { org: [{ id: this.orgId, type: this.orgType, company_name: "Synthetic Org" }] });
+    if (method === "GET" && path === "/crm/v8/org") return json(200, { org: [{ id: this.orgApiId, zgid: this.orgId, type: this.orgType, company_name: "Synthetic Org" }] });
     if (method === "GET" && path === "/crm/v8/settings/modules") {
       return json(200, { modules: [{ api_name: "Leads", id: "6223361000000002375" }, { api_name: "Consultation_Submissions", id: this.moduleId }] });
     }

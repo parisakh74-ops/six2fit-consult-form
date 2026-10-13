@@ -11,7 +11,8 @@ import { StoreError } from "../errors";
  * Variables (nothing has a default except limits):
  *   SIX2FIT_CONSULT_CRM_ENABLED        "true"
  *   SIX2FIT_ZOHO_ENVIRONMENT           "sandbox"
- *   SIX2FIT_ZOHO_ORG_ID                expected Sandbox organisation id (digits), e.g. the CA Dev org
+ *   SIX2FIT_ZOHO_ORG_ZGID              expected Sandbox organisation `zgid` (digits): the "Org ID" shown in the CRM UI
+ *   SIX2FIT_ZOHO_ORG_API_ID            optional pin of the organisation API `id` (a different number than the zgid)
  *   SIX2FIT_ZOHO_API_DOMAIN            https://sandbox.zohoapis.<dc>
  *   SIX2FIT_ZOHO_ACCOUNTS_DOMAIN       https://accounts.zoho.<dc>
  *   SIX2FIT_ZOHO_MODULE_ID_PREFIX      expected id prefix of the Sandbox org (digits), checked on the module id
@@ -23,7 +24,8 @@ import { StoreError } from "../errors";
  */
 export type CrmConfig = {
   environment: "sandbox";
-  orgId: string;
+  orgZgid: string;
+  orgApiId: string | undefined;
   apiDomain: string;
   accountsDomain: string;
   moduleIdPrefix: string;
@@ -66,8 +68,10 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
   if (get("SIX2FIT_CONSULT_CRM_ENABLED") !== "true") notConfigured("CRM mode is not enabled");
   if (get("SIX2FIT_ZOHO_ENVIRONMENT").toLowerCase() !== "sandbox") notConfigured("only the sandbox environment is supported");
 
-  const orgId = get("SIX2FIT_ZOHO_ORG_ID");
-  if (!/^\d{6,20}$/.test(orgId)) notConfigured("organisation id missing or malformed");
+  const orgZgid = get("SIX2FIT_ZOHO_ORG_ZGID");
+  if (!/^\d{6,20}$/.test(orgZgid)) notConfigured("organisation zgid missing or malformed");
+  const orgApiIdRaw = get("SIX2FIT_ZOHO_ORG_API_ID");
+  if (orgApiIdRaw !== "" && !/^\d{6,25}$/.test(orgApiIdRaw)) notConfigured("organisation api id malformed");
   const apiDomain = get("SIX2FIT_ZOHO_API_DOMAIN").replace(/\/+$/, "");
   if (!API_DOMAIN.test(apiDomain)) notConfigured("api domain must be a Zoho sandbox domain");
   const accountsDomain = get("SIX2FIT_ZOHO_ACCOUNTS_DOMAIN").replace(/\/+$/, "");
@@ -86,7 +90,8 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
 
   return {
     environment: "sandbox",
-    orgId,
+    orgZgid,
+    orgApiId: orgApiIdRaw === "" ? undefined : orgApiIdRaw,
     apiDomain,
     accountsDomain,
     moduleIdPrefix,
