@@ -3,6 +3,7 @@ import { link, mkdir, open, readFile, readdir, stat, unlink, writeFile } from "n
 import { join } from "node:path";
 import { SUBMISSION_ID_PATTERN } from "./contract";
 import { createLedgerCrmStore } from "./crm/factory";
+import { maybeRunLedgerSelfTest } from "./crm/ledger-selftest";
 import { StoreError } from "./errors";
 
 /**
@@ -162,6 +163,8 @@ export function createConsultStore(
   env: Record<string, string | undefined>,
   storageDir: string,
 ): ConsultStore {
+  // Opt-in host diagnostics (no shell access needed): proves hard-link/rename semantics in the ledger directory.
+  maybeRunLedgerSelfTest(env, (env["SIX2FIT_CONSULT_LEDGER_DIR"] ?? "").trim() || join(storageDir, "idempotency-ledger"));
   const kind = (env["SIX2FIT_CONSULT_STORE"] ?? "file").trim().toLowerCase();
   if (kind === "file") return new FileConsultStore(storageDir);
   if (kind === "crm") return createLedgerCrmStore(env, storageDir);
