@@ -67,7 +67,9 @@ describe("idempotency", () => {
     const { service } = make({ now: () => t });
     const payload = payloadFrom();
     const first = await send(service, payload);
-    const firstExp = verifyHandoff(session((first.body as any).onboarding_url), SECRET).exp;
+    // Parse the claims directly: verifyHandoff checks expiry against the REAL clock, and the fixed fake date above is
+    // in the past once 24 h have elapsed in real time (this test used to start failing a day after it was written).
+    const firstExp = JSON.parse(Buffer.from(session((first.body as any).onboarding_url).split(".")[0] as string, "base64url").toString()).exp;
 
     t += 25 * 3600 * 1000; // 25 h later: the original token would be expired
     const retry = await send(service, { ...payload, submitted_at: new Date(t).toISOString() });
