@@ -7,7 +7,7 @@
  * (no DELETE scope): the created ids are printed (`LIVE-RECORD`) for the evidence document.
  * Only the Consultation_Submissions module is touched; no Lead/Contact is read or written.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fingerprint } from "../../canonical";
 import { createConsultService } from "../../service";
 import { StoreError, createConsultStore, type StoredConsult } from "../../store";
@@ -15,6 +15,7 @@ import { MODULE_KEYS, FIRST_FLAG, moduleAnswer, payloadFrom, tamper } from "../.
 import { signHandoff, verifyHandoff } from "../../../staging-handoff";
 import { CrmConsultStore } from "../crm-store";
 
+vi.setConfig({ testTimeout: 240_000 });
 const LIVE = process.env["SIX2FIT_LIVE_SANDBOX"] === "1";
 const RUN = Date.now().toString(16).padStart(12, "0").slice(-12);
 const mkId = (n: number) => `cns_ffffffff-0000-4000-8000-${RUN.slice(0, 8)}${n.toString(16).padStart(4, "0")}`;
@@ -46,8 +47,31 @@ const asStore = () => createConsultStore(process.env as Record<string, string>, 
 const client = (s: CrmConsultStore) => (s as any).deps.client as { request: (m: "GET" | "POST", p: string, o?: any) => Promise<{ status: number; json: any }> };
 const shape = (v: unknown, depth = 0): unknown => {
   if (Array.isArray(v)) return v.length ? [shape(v[0], depth + 1)] : [];
-  if (v && typeof v === "object") return depth > 3 ? "{...}" : Object.fromEntries(Object.entries(v as any).map(([k, x]) => [k, shape(x, depth + 1)]));
+  if (v && typeof v === "object") return depth > 6 ? "{...}" : Object.fromEntries(Object.entries(v as any).map(([k, x]) => [k, shape(x, depth + 1)]));
   return typeof v === "string" ? "string" : v === null ? null : typeof v;
+};
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Ids of records whose Submission_ID equals `id` according to the CRM search (exact match only). Search can lag behind a create. */
+const searchIds = async (s: CrmConsultStore, id: string): Promise<string[]> => {
+  const r = await client(s).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id,Submission_ID" } });
+  const data = r.status === 204 || !r.json || !Array.isArray(r.json.data) ? [] : r.json.data;
+  return data.filter((x: any) => String(x.Submission_ID).toLowerCase() === id.toLowerCase()).map((x: any) => x.id);
+};
+const waitSearch = async (s: CrmConsultStore, id: string, maxMs = 150_000): Promise<string[]> => {
+  const t0 = Date.now();
+  for (;;) {
+    const ids = await searchIds(s, id);
+    if (ids.length > 0) {
+      note("LIVE-SEARCH-LAG", { idSuffix: id.slice(-8), ms: Date.now() - t0 });
+      return ids;
+    }
+    if (Date.now() - t0 > maxMs) {
+      note("LIVE-SEARCH-LAG", { idSuffix: id.slice(-8), ms: `>${maxMs}` });
+      return [];
+    }
+    await sleep(3000);
+  }
 };
 
 describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
@@ -61,11 +85,17 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
     expect(r.record.record_ref).toMatch(/^\d{10,25}$/);
     created.push(`${id} -> ${r.record.record_ref}`);
     note("LIVE-RECORD", `${id} -> ${r.record.record_ref}`);
+    const immediate = await client(store).request("GET", `/Consultation_Submissions/${r.record.record_ref}`);
+    note("LIVE-BY-ID-IMMEDIATE", { http: immediate.status, found: immediate.json?.data?.[0]?.Submission_ID === id });
+    expect(immediate.json.data[0].Submission_ID).toBe(id);
+    const searchNow = await searchIds(store, id);
+    note("LIVE-SEARCH-IMMEDIATELY-AFTER-CREATE", { found: searchNow.length });
   });
 
   it("L2 retrieve by Submission_ID: complete Raw_Payload_JSON, hash, nine Module_Answers rows", async () => {
     const id = mkId(1);
     const p = nine(id);
+    expect(await waitSearch(store, id)).toHaveLength(1);
     const view = await store.getSubmission(id);
     expect(view).not.toBeNull();
     expect(view!.stored.payload).toEqual(p);
@@ -78,8 +108,7 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
   it("L3 structured parent fields match the mapping (raw record read)", async () => {
     const id = mkId(1);
     const p = nine(id);
-    const search = await client(store).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id" } });
-    const rid = search.json.data[0].id;
+    const rid = (await waitSearch(store, id))[0];
     const got = await client(store).request("GET", `/Consultation_Submissions/${rid}`);
     const r = got.json.data[0];
     note("LIVE-RESPONSE-SHAPE get-by-id", shape(r));
@@ -102,12 +131,13 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
 
   it("L4 identical retry returns the existing record, no second record", async () => {
     const id = mkId(1);
-    const before = await client(store).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id" } });
+    const before = await waitSearch(store, id);
     const again = await store.create(id, rec(nine(id)));
     expect(again.status).toBe("exists");
-    const after = await client(store).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id" } });
-    expect(after.json.data).toHaveLength(1);
-    expect(after.json.data[0].id).toBe(before.json.data[0].id);
+    const after = await searchIds(store, id);
+    expect(after).toHaveLength(1);
+    expect(after[0]).toBe(before[0]);
+    expect(again.record.record_ref).toBe(before[0]);
   });
 
   it("L5 duplicate Submission_ID: record the real DUPLICATE_DATA contract (direct insert, nothing created)", async () => {
@@ -118,8 +148,7 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
     const item = r.json?.data?.[0] ?? r.json;
     expect(item.code).toBe("DUPLICATE_DATA");
     note("LIVE-DUPLICATE-code/status", { http: r.status, code: item.code, detailsKeys: Object.keys(item.details ?? {}) });
-    const search = await client(store).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id" } });
-    expect(search.json.data).toHaveLength(1);
+    expect(await searchIds(store, id)).toHaveLength(1);
   });
 
   it("L6 case variant of the id is the same submission (unique field is case-insensitive)", async () => {
@@ -152,8 +181,7 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
     const conflict = await send(nine(id, { age: 41 }));
     expect(conflict.status).toBe(409);
     expect(conflict.body).toEqual({ ok: false, error_code: "SUBMISSION_CONFLICT" });
-    const count = await client(store).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id" } });
-    expect(count.json.data).toHaveLength(1);
+    expect(await waitSearch(store, id)).toHaveLength(1);
     // the stored answers are still the original ones
     expect((await store.get(id))!.payload).toEqual(p);
   });
@@ -167,8 +195,7 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
     const created1 = results.find((r) => r.status === "created")!;
     created.push(`${id} -> ${created1.record.record_ref}`);
     note("LIVE-RECORD", `${id} -> ${created1.record.record_ref}`);
-    const count = await client(store).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id" } });
-    expect(count.json.data).toHaveLength(1);
+    expect(await waitSearch(store, id)).toHaveLength(1);
   });
 
   it("L9 Persian / Unicode round trip, including a large multi-byte raw payload", async () => {
@@ -180,10 +207,10 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
     expect(r.status).toBe("created");
     created.push(`${id} -> ${r.record.record_ref}`);
     note("LIVE-RECORD", `${id} -> ${r.record.record_ref} (raw chars ${raw})`);
+    const rid = (await waitSearch(store, id))[0];
     const view = await store.getSubmission(id);
     expect(view!.stored.payload).toEqual(p);
-    const search = await client(store).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id" } });
-    const got = await client(store).request("GET", `/Consultation_Submissions/${search.json.data[0].id}`);
+    const got = await client(store).request("GET", `/Consultation_Submissions/${rid}`);
     expect(got.json.data[0].Full_Name).toBe("پریسا خداب");
   });
 
@@ -194,8 +221,7 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
     const r = await client(store).request("POST", "/Consultation_Submissions", { body: { data: [bad], trigger: [] } });
     note("LIVE-RESPONSE-SHAPE invalid-length", { status: r.status, shape: shape(r.json), code: r.json?.data?.[0]?.code ?? r.json?.code });
     expect(r.status).toBeGreaterThanOrEqual(400);
-    const search = await client(store).request("GET", "/Consultation_Submissions/search", { query: { criteria: `(Submission_ID:equals:${id})`, fields: "id" } });
-    expect(search.status === 204 || (search.json?.data ?? []).length === 0).toBe(true);
+    expect(await waitSearch(store, id, 20_000)).toHaveLength(0);
   });
 
   it("L11 authentication failure: a bogus token is rejected with a safe 401 (no quota use beyond one call)", async () => {
