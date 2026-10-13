@@ -203,11 +203,36 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
     const p = tamper(nine(id, { lead_full_name: "پریسا خداب", blocker_details: "توضیح آزمایشی ".repeat(30) }), (x) => (x.x_fill = "سلام دنیا ".repeat(2500)));
     const raw = JSON.stringify(p).length;
     expect(raw).toBeLessThan(31_000);
-    const r = await store.create(id, rec(p));
-    expect(r.status).toBe("created");
-    created.push(`${id} -> ${r.record.record_ref}`);
-    note("LIVE-RECORD", `${id} -> ${r.record.record_ref} (raw chars ${raw})`);
-    const rid = (await waitSearch(store, id))[0];
+    // First write under a deliberately tiny client timeout (150 ms): the request is aborted client-side, Zoho may still
+    // process it. The adapter must end with at most ONE logical submission (ambiguous-write recovery).
+    await store.get(mkId(9)); // warms the environment guard with the normal timeout
+    const cfg = (store as any).deps.config as { requestTimeoutMs: number };
+    const normalTimeout = cfg.requestTimeoutMs;
+    cfg.requestTimeoutMs = 150;
+    let outcome = "";
+    try {
+      outcome = (await store.create(id, rec(p))).status;
+    } catch (e) {
+      outcome = e instanceof StoreError ? `StoreError ${e.kind}:${e.code}` : "other error";
+    } finally {
+      cfg.requestTimeoutMs = normalTimeout;
+    }
+    note("LIVE-TIMEOUT-WRITE-OUTCOME", outcome);
+    let ids = await waitSearch(store, id, 90_000);
+    note("LIVE-TIMEOUT-WRITE-RECORDS-AFTER", ids.length);
+    if (ids.length === 0) {
+      // the aborted request never reached Zoho: a normal retry creates it (still exactly one record in total)
+      const r2 = await store.create(id, rec(p));
+      expect(r2.status).toBe("created");
+      ids = await waitSearch(store, id);
+    }
+    expect(ids).toHaveLength(1);
+    created.push(`${id} -> ${ids[0]}`);
+    note("LIVE-RECORD", `${id} -> ${ids[0]} (raw chars ${raw})`);
+    const again9 = await store.create(id, rec(p));
+    expect(again9.status).toBe("exists");
+    expect(again9.record.record_ref).toBe(ids[0]);
+    const rid = ids[0];
     const view = await store.getSubmission(id);
     expect(view!.stored.payload).toEqual(p);
     const got = await client(store).request("GET", `/Consultation_Submissions/${rid}`);
