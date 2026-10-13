@@ -142,7 +142,7 @@ export function createConsultService(deps: ConsultServiceDeps) {
     } catch (error) {
       const kind = error instanceof StoreError ? error.kind : "UNEXPECTED";
       const code = error instanceof StoreError ? error.code : undefined;
-      log("consult.storage_failure", { kind, ...(code ? { code } : {}), ms: now() - startedAt });
+      log(code === "DUPLICATE_RECORDS" ? "consult.integrity_exception" : "consult.storage_failure", { kind, ...(code ? { code } : {}), ms: now() - startedAt });
       return errorResult("STORAGE_UNAVAILABLE");
     }
   }

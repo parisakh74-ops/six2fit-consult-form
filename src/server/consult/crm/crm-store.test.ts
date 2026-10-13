@@ -229,30 +229,40 @@ describe("timeouts and ambiguous outcomes", () => {
     expect(logs.some((l) => l.event === "crm.ambiguous")).toBe(true);
   });
 
-  it("9: timeout with nothing stored -> retried once the lookup proves it is absent", async () => {
+  it("9: timeout with nothing stored -> NO blind retry: OUTCOME_UNKNOWN, one POST, notWritten stays false", async () => {
     const { zoho, store, sleeps } = setup();
     const id = newId(10);
     zoho.failNext(/Consultation_Submissions$/, { kind: "timeout" }, 1, "POST");
-    const r = await store.create(id, recordFor(nine(id)));
-    expect(r.status).toBe("created");
-    expect(zoho.records).toHaveLength(1);
-    expect(posts(zoho)).toBe(2);
-    expect(sleeps).toEqual([500]);
+    const e = await fails(store.create(id, recordFor(nine(id))));
+    expect(e).toMatchObject({ kind: "UNAVAILABLE", code: "OUTCOME_UNKNOWN", notWritten: false });
+    expect(posts(zoho)).toBe(1);
+    expect(sleeps).toEqual([]);
   });
 
-  it("persistent timeouts end in an error without data loss claims and without duplicates", async () => {
+  it("persistent timeouts: still exactly one POST, never a success", async () => {
     const { zoho, store } = setup();
     const id = newId(10);
     zoho.failNext(/Consultation_Submissions$/, { kind: "timeout" }, 5, "POST");
-    expect(await fails(store.create(id, recordFor(nine(id))))).toMatchObject({ kind: "UNAVAILABLE", code: "TIMEOUT" });
+    expect(await fails(store.create(id, recordFor(nine(id))))).toMatchObject({ kind: "UNAVAILABLE", code: "OUTCOME_UNKNOWN" });
     expect(zoho.records).toHaveLength(0);
-    expect(posts(zoho)).toBe(3);
+    expect(posts(zoho)).toBe(1);
   });
 
-  it("network error then success", async () => {
+  it("network error is an unknown outcome (the request may have been processed): no second POST", async () => {
     const { zoho, store } = setup();
     zoho.failNext(/Consultation_Submissions$/, { kind: "network" }, 1, "POST");
-    expect((await store.create(newId(11), recordFor(nine(newId(11))))).status).toBe("created");
+    expect(await fails(store.create(newId(11), recordFor(nine(newId(11)))))).toMatchObject({ code: "OUTCOME_UNKNOWN" });
+    expect(posts(zoho)).toBe(1);
+  });
+
+  it("an empty search right after a persisted-but-unanswered create (index lag) is not proof of absence", async () => {
+    const { zoho, store } = setup();
+    const id = newId(11);
+    zoho.searchLag = true;
+    zoho.failNext(/Consultation_Submissions$/, { kind: "persist-then-timeout" }, 1, "POST");
+    expect(await fails(store.create(id, recordFor(nine(id))))).toMatchObject({ code: "OUTCOME_UNKNOWN" });
+    expect(zoho.records).toHaveLength(1); // it WAS stored; the adapter did not write again
+    expect(posts(zoho)).toBe(1);
   });
 
   it("stored but answered with 5xx -> lookup finds it", async () => {
@@ -263,14 +273,14 @@ describe("timeouts and ambiguous outcomes", () => {
     expect(zoho.records).toHaveLength(1);
   });
 
-  it("lookup also failing keeps the outcome ambiguous (AMBIGUOUS) and never invents success", async () => {
+  it("lookup also failing keeps the outcome unknown and never invents success", async () => {
     const { zoho, store } = setup();
     const id = newId(13);
-    zoho.failNext(/Consultation_Submissions$/, { kind: "persist-then-timeout" }, 3, "POST");
-    zoho.failNext(/search$/, { kind: "status", status: 503 }, 5);
-    const e = await fails(store.create(id, recordFor(nine(id))));
-    expect(e).toMatchObject({ kind: "UNAVAILABLE", code: "AMBIGUOUS" });
-    // A later client retry is safe and finds the stored record.
+    zoho.failNext(/Consultation_Submissions$/, { kind: "persist-then-timeout" }, 1, "POST");
+    zoho.failNext(/search$/, { kind: "status", status: 503 }, 1);
+    expect(await fails(store.create(id, recordFor(nine(id))))).toMatchObject({ kind: "UNAVAILABLE", code: "OUTCOME_UNKNOWN" });
+    expect(posts(zoho)).toBe(1);
+    // A later request (not concurrent) is answered by the CRM's unique constraint, not by a second record.
     const retry = await store.create(id, recordFor(nine(id)));
     expect(retry.status).toBe("exists");
     expect(zoho.records).toHaveLength(1);
@@ -321,32 +331,31 @@ describe("HTTP error mapping", () => {
     expect(zoho.records).toHaveLength(0);
   });
 
-  it("12: 5xx without persistence is retried after the lookup proves absence", async () => {
+  it("12: 5xx is an unknown outcome: no retry, one POST", async () => {
     const { zoho, store } = setup();
     zoho.failNext(/Consultation_Submissions$/, { kind: "status", status: 503, body: {} }, 2, "POST");
-    expect((await store.create(newId(18), recordFor(nine(newId(18))))).status).toBe("created");
-    expect(posts(zoho)).toBe(3);
-    expect(zoho.records).toHaveLength(1);
+    expect(await fails(store.create(newId(18), recordFor(nine(newId(18)))))).toMatchObject({ code: "OUTCOME_UNKNOWN" });
+    expect(posts(zoho)).toBe(1);
   });
 
-  it("12: persistent 5xx -> UPSTREAM_5XX", async () => {
+  it("12: persistent 5xx -> OUTCOME_UNKNOWN", async () => {
     const { zoho, store } = setup();
     zoho.failNext(/Consultation_Submissions$/, { kind: "status", status: 500, body: {} }, 9, "POST");
-    expect(await fails(store.create(newId(18), recordFor(nine(newId(18)))))).toMatchObject({ kind: "UNAVAILABLE", code: "UPSTREAM_5XX" });
+    expect(await fails(store.create(newId(18), recordFor(nine(newId(18)))))).toMatchObject({ kind: "UNAVAILABLE", code: "OUTCOME_UNKNOWN" });
   });
 
-  it("13: unreadable create response (HTML) is ambiguous: lookup then retry", async () => {
+  it("13: unreadable create response (HTML) is ambiguous: lookup only, never a retry", async () => {
     const { zoho, store } = setup();
     zoho.failNext(/Consultation_Submissions$/, { kind: "garbage", status: 200 }, 1, "POST");
-    expect((await store.create(newId(19), recordFor(nine(newId(19))))).status).toBe("created");
-    expect(zoho.records).toHaveLength(1);
+    expect(await fails(store.create(newId(19), recordFor(nine(newId(19)))))).toMatchObject({ code: "OUTCOME_UNKNOWN" });
+    expect(posts(zoho)).toBe(1);
   });
 
   it("13: success body without an id is never trusted", async () => {
     const { zoho, store } = setup();
     zoho.failNext(/Consultation_Submissions$/, { kind: "status", status: 201, body: { data: [{ code: "SUCCESS", details: {} }] } }, 1, "POST");
-    expect((await store.create(newId(19), recordFor(nine(newId(19))))).status).toBe("created");
-    expect(zoho.records).toHaveLength(1);
+    expect(await fails(store.create(newId(19), recordFor(nine(newId(19)))))).toMatchObject({ code: "OUTCOME_UNKNOWN" });
+    expect(posts(zoho)).toBe(1);
   });
 
   it("13: invalid search / read responses fail closed", async () => {
@@ -493,7 +502,7 @@ describe("environment safeguards (fail closed)", () => {
     const { zoho, store, logs } = setup();
     zoho.failNext(/Consultation_Submissions$/, { kind: "timeout" }, 1, "POST");
     const id = newId(33);
-    await store.create(id, recordFor(tamper(nine(id), (p) => (p.lead_full_name = "Synthetic Secret Person"))));
+    await fails(store.create(id, recordFor(tamper(nine(id), (p) => (p.lead_full_name = "Synthetic Secret Person")))));
     const text = JSON.stringify(logs);
     expect(text).not.toMatch(/synthetic-secret|synthetic-refresh|synthetic-access|Synthetic Secret Person|Zoho-oauthtoken/);
   });

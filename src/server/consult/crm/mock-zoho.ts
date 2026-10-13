@@ -38,6 +38,13 @@ export class MockZoho {
   orgType = "sandbox";
   /** Observed: a Sandbox grant returns the generic host. */
   tokenApiDomain = "https://www.zohoapis.com";
+  /**
+   * Reproduces the OBSERVED CA Dev behaviour: the uniqueness check and the commit are not atomic, so concurrent
+   * identical inserts all succeed (L8). The check happens first; the commit follows after a macrotask.
+   */
+  nonAtomicInsert = false;
+  /** Reproduces the observed search index lag (HTTP 204 for records that exist). GET by id is unaffected. */
+  searchLag = false;
   /** Field length limit in characters (text 255, textarea fields 2000, raw 32000). */
   private nextId = 6223361000127060100n;
   /** Zoho counts characters; the mock uses code points. */
@@ -72,6 +79,12 @@ export class MockZoho {
         }
       }
     }
+    if (this.nonAtomicInsert && tokenOk && method === "POST" && u.pathname === "/crm/v8/Consultation_Submissions") {
+      const staged = this.stageInsert(init.body ?? "");
+      if (typeof staged !== "function") return staged;
+      await new Promise((r) => setTimeout(r, 5));
+      return staged();
+    }
     return this.handle(u, init, method, tokenOk);
   };
 
@@ -98,7 +111,7 @@ export class MockZoho {
     if (method === "GET" && path === "/crm/v8/Consultation_Submissions/search") {
       const m = /^\(Submission_ID:equals:(.+)\)$/.exec(u.searchParams.get("criteria") ?? "");
       // Zoho documents `equals` in search as contains-like: the mock reproduces that.
-      const hit = m ? this.records.filter((r) => String(r["Submission_ID"]).toLowerCase().includes((m[1] as string).toLowerCase())) : [];
+      const hit = m && !this.searchLag ? this.records.filter((r) => String(r["Submission_ID"]).toLowerCase().includes((m[1] as string).toLowerCase())) : [];
       if (hit.length === 0) return new Response(null, { status: 204 });
       return json(200, { data: hit.map((r) => ({ id: r.id, Submission_ID: r["Submission_ID"] })), info: { count: hit.length } });
     }
@@ -112,6 +125,12 @@ export class MockZoho {
   }
 
   private insert(raw: string): Response {
+    const staged = this.stageInsert(raw);
+    return typeof staged === "function" ? staged() : staged;
+  }
+
+  /** Validation and uniqueness check now; the returned function commits the record. */
+  private stageInsert(raw: string): Response | (() => Response) {
     let body: { data?: Array<Record<string, unknown>>; trigger?: unknown };
     try {
       body = JSON.parse(raw);
@@ -139,8 +158,10 @@ export class MockZoho {
     if (existing) {
       return json(400, { data: [{ code: "DUPLICATE_DATA", details: { api_name: "Submission_ID", id: existing.id }, message: "duplicate data", status: "error" }] });
     }
-    const id = String(this.nextId++);
-    this.records.push({ ...rec, id, Created_Time: "2026-10-12T10:00:00+00:00" });
-    return json(201, { data: [{ code: "SUCCESS", details: { id, Created_Time: "2026-10-12T10:00:00+00:00" }, message: "record added", status: "success" }] });
+    return () => {
+      const id = String(this.nextId++);
+      this.records.push({ ...rec, id, Created_Time: "2026-10-12T10:00:00+00:00" });
+      return json(201, { data: [{ code: "SUCCESS", details: { id, Created_Time: "2026-10-12T10:00:00+00:00" }, message: "record added", status: "success" }] });
+    };
   }
 }

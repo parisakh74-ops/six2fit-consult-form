@@ -8,4 +8,10 @@ export class StoreError extends Error {
     super(message);
     this.name = "StoreError";
   }
+
+  /**
+   * True only when the failure proves that nothing was written to the CRM (no request was sent, or the CRM
+   * definitively refused it). Anything else after a write was attempted is an UNKNOWN outcome.
+   */
+  public notWritten = false;
 }

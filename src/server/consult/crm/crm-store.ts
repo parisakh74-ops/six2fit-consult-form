@@ -19,7 +19,10 @@ export type CrmStoreDeps = {
   associations?: (submissionId: string, payload: Record<string, unknown>) => { lead?: string; contact?: string } | undefined;
 };
 
-type DataItem = { code?: unknown; status?: unknown; details?: { id?: unknown; api_name?: unknown; duplicate_record?: { id?: unknown }; id_?: unknown } };
+/** CRM answers that prove the write was refused (nothing stored). */
+const DEFINITE_REFUSALS = new Set(["AUTH_FAILED", "FORBIDDEN", "RATE_LIMITED"]);
+
+type DataItem = { code?: unknown; status?: unknown; details?: { more_records?: unknown; id?: unknown; api_name?: unknown; duplicate_record?: { id?: unknown }; id_?: unknown } };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -30,10 +33,13 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object
  *  - `create` never upserts or updates. The unique field `Submission_ID` is the authoritative guard:
  *    a duplicate answer makes the adapter read the existing record and return `exists`; the service
  *    then compares canonical fingerprints (equivalent -> deduplicated success, different -> conflict).
- *  - Timeouts, 5xx and unreadable responses are AMBIGUOUS (the record may exist): the adapter looks the
- *    submission up before retrying the write, so a retry can never create a second record.
+ *  - Timeouts, 5xx and unreadable responses are AMBIGUOUS (the record may exist). The adapter NEVER writes
+ *    again after an ambiguous outcome: it does one lookup (a positive hit proves the record exists; an empty
+ *    search proves nothing because the index lags ~20 s behind a create) and otherwise fails with
+ *    `OUTCOME_UNKNOWN`. Resolving an unknown outcome is the job of the idempotency ledger (ledger.ts).
  *  - 429 is retried after the advertised delay (the request was not processed).
  *  - Every other failure ends in a `StoreError` (HTTP 503 for the browser), never in silent loss.
+ *  - `StoreError.notWritten` is set only when nothing can have been written (no POST sent, or a definitive refusal).
  */
 export class CrmConsultStore implements ConsultStore {
   constructor(private readonly deps: CrmStoreDeps) {}
@@ -62,6 +68,20 @@ export class CrmConsultStore implements ConsultStore {
 
   async get(submissionId: string): Promise<StoredConsult | null> {
     return (await this.getSubmission(submissionId))?.stored ?? null;
+  }
+
+  /** Search by the unique field (positive hits only are proof; see class comment). Throws CORRUPT on duplicates. */
+  async lookupId(submissionId: string): Promise<string | null> {
+    this.assertId(submissionId);
+    await this.deps.client.verifyEnvironment();
+    return this.searchId(submissionId);
+  }
+
+  /** Reads a record by its CRM id (immediately consistent, unlike search). */
+  async readRecord(recordId: string, submissionId: string): Promise<CrmSubmissionView> {
+    this.assertId(submissionId);
+    await this.deps.client.verifyEnvironment();
+    return this.readById(recordId, submissionId);
   }
 
   /** Search by the unique field. HTTP 204 / empty data = not found. */
@@ -125,6 +145,16 @@ export class CrmConsultStore implements ConsultStore {
   }
 
   async create(submissionId: string, record: StoredConsult): Promise<CreateResult> {
+    const state = { posted: false };
+    try {
+      return await this.createInner(submissionId, record, state);
+    } catch (e) {
+      if (e instanceof StoreError && (!state.posted || DEFINITE_REFUSALS.has(e.code ?? "") || e.kind === "REJECTED")) e.notWritten = true;
+      throw e;
+    }
+  }
+
+  private async createInner(submissionId: string, record: StoredConsult, state: { posted: boolean }): Promise<CreateResult> {
     this.assertId(submissionId);
     const { config } = this.deps;
     const association = this.deps.associations?.(submissionId, record.payload);
@@ -146,6 +176,7 @@ export class CrmConsultStore implements ConsultStore {
       let res: ZohoResponse | null = null;
       let transport: "timeout" | "network" | null = null;
       try {
+        state.posted = true;
         res = await this.deps.client.request("POST", `/${config.moduleApiName}`, { body });
       } catch (e) {
         if (e instanceof ZohoTransportError) transport = e.reason;
@@ -173,7 +204,8 @@ export class CrmConsultStore implements ConsultStore {
         lastError = new StoreError("UNAVAILABLE", "crm outcome unknown", transport === "timeout" ? "TIMEOUT" : "NETWORK");
       }
 
-      // Ambiguous outcome: the record may already exist. Look it up before any further write.
+      // Ambiguous outcome: the record may already exist. NEVER write again. One lookup: a hit is proof of
+      // existence; an empty search is NOT proof of absence (index lag), so the outcome stays unknown.
       this.log("crm.ambiguous", { attempt, reason: lastError.code ?? "unknown" });
       try {
         const existingId = await this.searchId(submissionId);
@@ -183,11 +215,9 @@ export class CrmConsultStore implements ConsultStore {
         }
       } catch (e) {
         if (!(e instanceof StoreError) || e.kind === "CORRUPT") throw e;
-        // The lookup failed as well: still unknown. A later attempt (or a client retry) is safe.
         this.log("crm.lookup_failed", { attempt, reason: e.code ?? "unknown" });
-        lastError = new StoreError("UNAVAILABLE", "crm outcome unknown", "AMBIGUOUS");
       }
-      if (attempt < config.maxAttempts) await this.deps.sleep(this.backoff(attempt));
+      throw new StoreError("UNAVAILABLE", "crm outcome unknown", "OUTCOME_UNKNOWN");
     }
     throw lastError ?? new StoreError("UNAVAILABLE", "crm create failed", "EXHAUSTED");
   }
@@ -225,6 +255,8 @@ export class CrmConsultStore implements ConsultStore {
       return { kind: "ambiguous", code: "INVALID_RESPONSE" };
     }
     if (code === "DUPLICATE_DATA") {
+      const more = item?.details?.more_records;
+      if (more === true) return { kind: "fatal", error: new StoreError("CORRUPT", "more than one record for a submission id", "DUPLICATE_RECORDS") };
       const dup = item?.details?.id ?? item?.details?.duplicate_record?.id ?? (isObj(j["details"]) ? ((j["details"] as Record<string, unknown>)["id"] ?? (isObj((j["details"] as Record<string, unknown>)["duplicate_record"]) ? ((j["details"] as { duplicate_record: { id?: unknown } }).duplicate_record.id) : undefined)) : undefined);
       return { kind: "duplicate", existingId: typeof dup === "string" && /^\d{6,25}$/.test(dup) ? dup : null };
     }

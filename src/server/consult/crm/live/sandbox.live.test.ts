@@ -10,7 +10,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { fingerprint } from "../../canonical";
 import { createConsultService } from "../../service";
-import { StoreError, createConsultStore, type StoredConsult } from "../../store";
+import { StoreError, type StoredConsult } from "../../store";
+import { createCrmConsultStore } from "../factory";
 import { MODULE_KEYS, FIRST_FLAG, moduleAnswer, payloadFrom, tamper } from "../../fixtures";
 import { signHandoff, verifyHandoff } from "../../../staging-handoff";
 import { CrmConsultStore } from "../crm-store";
@@ -43,7 +44,8 @@ const buildNine = (id: string, over: Record<string, unknown> = {}) =>
     id,
   ) as any;
 const rec = (payload: any): StoredConsult => ({ version: 2, submission_id: payload.submission_id, payload_hash: fingerprint(payload), payload, record_ref: "local", created_at: new Date().toISOString() });
-const asStore = () => createConsultStore(process.env as Record<string, string>, "unused") as CrmConsultStore;
+// The raw CRM adapter (no ledger): the live suite characterises the CRM itself. L8 documents the CRM race the ledger exists for.
+const asStore = () => createCrmConsultStore(process.env as Record<string, string>);
 const client = (s: CrmConsultStore) => (s as any).deps.client as { request: (m: "GET" | "POST", p: string, o?: any) => Promise<{ status: number; json: any }> };
 const shape = (v: unknown, depth = 0): unknown => {
   if (Array.isArray(v)) return v.length ? [shape(v[0], depth + 1)] : [];

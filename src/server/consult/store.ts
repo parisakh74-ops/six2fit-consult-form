@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { link, mkdir, open, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SUBMISSION_ID_PATTERN } from "./contract";
-import { createCrmConsultStore } from "./crm/factory";
+import { createLedgerCrmStore } from "./crm/factory";
 import { StoreError } from "./errors";
 
 /**
@@ -164,6 +164,6 @@ export function createConsultStore(
 ): ConsultStore {
   const kind = (env["SIX2FIT_CONSULT_STORE"] ?? "file").trim().toLowerCase();
   if (kind === "file") return new FileConsultStore(storageDir);
-  if (kind === "crm") return createCrmConsultStore(env);
+  if (kind === "crm") return createLedgerCrmStore(env, storageDir);
   throw new StoreError("NOT_CONFIGURED", "unknown store");
 }
