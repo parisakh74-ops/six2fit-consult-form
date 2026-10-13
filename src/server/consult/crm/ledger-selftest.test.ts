@@ -44,3 +44,12 @@ describe("ledger filesystem self-test", () => {
     expect(JSON.parse(lines[0] as string)).toMatchObject({ pid: process.pid });
   }, 60_000);
 });
+
+describe("server-boundary trigger", () => {
+  it("ledgerSelfTestFromEnv is inert without the flag and runs from any request path when set", async () => {
+    const { ledgerSelfTestFromEnv } = await import("./ledger-selftest");
+    ledgerSelfTestFromEnv({ SIX2FIT_CONSULT_LEDGER_DIR: join(dir, "inert") });
+    await new Promise((r) => setTimeout(r, 50));
+    await expect(readdir(join(dir, "inert"))).rejects.toThrow();
+  });
+});

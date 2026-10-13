@@ -3,6 +3,7 @@ import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { dispatchConsultRequest } from "./server/consult/http";
+import { ledgerSelfTestFromEnv } from "./server/consult/crm/ledger-selftest";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -48,6 +49,7 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      ledgerSelfTestFromEnv(); // opt-in host diagnostics (SIX2FIT_LEDGER_SELFTEST=1); inert otherwise
       // CloudLinux Passenger may rewrite application subpaths before TanStack's
       // file router sees them. Dispatch the consult API at the server boundary.
       // Business logic lives in src/server/consult/service.ts (single implementation).

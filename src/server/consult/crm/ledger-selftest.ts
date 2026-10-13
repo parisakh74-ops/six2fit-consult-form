@@ -186,3 +186,15 @@ export function maybeRunLedgerSelfTest(env: Record<string, string | undefined>, 
     }
   })();
 }
+
+/**
+ * Entry used by the server boundary (`src/server.ts`) on every request, independent of routing: does nothing unless
+ * `SIX2FIT_LEDGER_SELFTEST=1`. Directory: `SIX2FIT_CONSULT_LEDGER_DIR`, else `<SIX2FIT_STAGING_STORAGE_DIR>/idempotency-ledger`.
+ */
+export function ledgerSelfTestFromEnv(env: Record<string, string | undefined> = process.env): void {
+  if (env["SIX2FIT_LEDGER_SELFTEST"] !== "1") return;
+  const explicit = (env["SIX2FIT_CONSULT_LEDGER_DIR"] ?? "").trim();
+  const storage = (env["SIX2FIT_STAGING_STORAGE_DIR"] ?? "").trim();
+  const dir = explicit || (storage ? join(storage, "idempotency-ledger") : "");
+  if (dir) maybeRunLedgerSelfTest(env, dir);
+}
