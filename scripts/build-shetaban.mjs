@@ -1,8 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-const vite = process.platform === "win32"
-  ? "node_modules/.bin/vite.cmd"
-  : "node_modules/.bin/vite";
+const viteEntry = "node_modules/vite/bin/vite.js"; // run through node: no shell or .cmd shim needed on any platform
 
 // The ShetabanHost startup file (passenger.cjs) expects a `middleware` export, i.e. the Nitro `node-middleware` preset
 // (verified on the host, 2026-10-13: nitro.json preset "node-middleware"). Override with NITRO_PRESET only knowingly.
@@ -19,10 +17,11 @@ if (!process.env.VITE_BUILD_ID) {
   }
 }
 
-const result = spawnSync(vite, ["build", "--mode", "staging"], {
+const result = spawnSync(process.execPath, [viteEntry, "build", "--mode", "staging"], {
   stdio: "inherit",
   env: { ...process.env, NITRO_PRESET: preset, VITE_BUILD_ID: buildId },
 });
 
-console.log(`built preset=${preset} build=${buildId}`);
+if (result.error) console.error("build failed to start:", result.error.message);
+if (result.status === 0) console.log(`built preset=${preset} build=${buildId}`);
 process.exit(result.status ?? 1);
