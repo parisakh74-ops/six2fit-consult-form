@@ -269,10 +269,10 @@ export function ConsultForm() {
         {step === 0 ? (
           <div className="space-y-6">
             <div className="space-y-3">
-              <h1 className="text-2xl font-bold leading-10 text-foreground sm:text-[28px]">
+              <h1 className="text-[24px] font-medium leading-8 text-foreground sm:text-[28px] sm:leading-10">
                 {welcomeCopy.title}
               </h1>
-              <p className="text-[15px] leading-8 text-muted-foreground">
+              <p className="text-[16px] leading-7 text-muted-foreground">
                 {welcomeCopy.description}
               </p>
             </div>
@@ -619,7 +619,7 @@ export function ConsultForm() {
 
         {/* ---------------- navigation ---------------- */}
         {step > 0 ? (
-          <div className="mt-8 border-t border-border pt-6">
+          <div className="mt-10 border-t border-border pt-6">
             <div className="flex flex-col gap-2.5 sm:flex-row-reverse sm:items-center">
               {isLastStep ? (
                 <PrimaryButton

@@ -20,7 +20,7 @@ export function FieldShell({
     <div className="space-y-2.5">
       <label
         htmlFor={htmlFor}
-        className="block text-[15px] font-semibold leading-7 text-foreground"
+        className="block text-[16px] font-medium leading-7 text-foreground"
       >
         {label}
       </label>
@@ -36,9 +36,9 @@ export function FieldShell({
 }
 
 const cardBase =
-  "relative flex w-full cursor-pointer items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3.5 text-start text-[15px] leading-6 transition-colors hover:border-foreground/25 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand";
+  "relative flex min-h-16 w-full cursor-pointer items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-start text-[16px] leading-6 transition-[border-color,box-shadow,background-color,transform] hover:border-input hover:shadow-sm active:scale-[0.995] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand";
 
-const cardSelected = "border-brand bg-brand-soft";
+const cardSelected = "border-brand bg-brand-soft shadow-[0_0_0_1px_var(--brand)]";
 
 function Indicator({ checked, round }: { checked: boolean; round: boolean }) {
   return (
@@ -81,13 +81,13 @@ export function RadioCards({
 }) {
   return (
     <fieldset className="space-y-2.5">
-      <legend className="mb-2.5 block text-[15px] font-semibold leading-7 text-foreground">
+      <legend className="mb-3 block text-[16px] font-medium leading-7 text-foreground">
         {legend}
       </legend>
       {helper ? (
         <p className="-mt-1 mb-1 text-[13px] text-muted-foreground">{helper}</p>
       ) : null}
-      <div className={cn("grid gap-2.5", columns === 2 && "sm:grid-cols-2")}>
+      <div className={cn("grid gap-4", columns === 2 && "sm:grid-cols-2")}>
         {options.map((option) => {
           const checked = value === option.value;
           return (
@@ -148,13 +148,13 @@ export function CheckboxCards({
 
   return (
     <fieldset className="space-y-2.5">
-      <legend className="mb-2.5 block text-[15px] font-semibold leading-7 text-foreground">
+      <legend className="mb-3 block text-[16px] font-medium leading-7 text-foreground">
         {legend}
       </legend>
       {helper ? (
         <p className="-mt-1 mb-1 text-[13px] text-muted-foreground">{helper}</p>
       ) : null}
-      <div className={cn("grid gap-2.5", columns === 2 && "sm:grid-cols-2")}>
+      <div className={cn("grid gap-4", columns === 2 && "sm:grid-cols-2")}>
         {options.map((option) => {
           const checked = value.includes(option.value);
           return (
@@ -185,7 +185,7 @@ export function CheckboxCards({
 }
 
 const inputBase =
-  "w-full rounded-xl border border-border bg-card px-4 py-3 text-[15px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/25 aria-[invalid=true]:border-destructive";
+  "min-h-14 w-full rounded-xl border border-border bg-card px-4 py-3 text-[16px] text-foreground outline-none transition-[border-color,box-shadow,background-color] placeholder:text-muted-foreground/70 hover:border-input focus-visible:border-brand focus-visible:ring-4 focus-visible:ring-brand/10 disabled:cursor-not-allowed disabled:bg-[#e9e9eb] disabled:text-[#9b9ba1] aria-[invalid=true]:border-destructive";
 
 export function TextField({
   label,
