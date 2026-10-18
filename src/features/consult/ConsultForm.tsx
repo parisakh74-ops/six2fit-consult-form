@@ -747,7 +747,7 @@ function HealthChecklist({
   );
 }
 
-function CountryPicker({
+export function CountryPicker({
   value,
   onChange,
   error,
@@ -780,7 +780,7 @@ function CountryPicker({
               <span className="truncate">{current.fa}</span>
             </span>
             <span dir="ltr" className="tabular-nums text-muted-foreground">{current.dial}</span>
-            </> : <span dir="ltr" className="text-muted-foreground">Canada +1</span>}
+            </> : <span className="text-muted-foreground">انتخاب کنید</span>}
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[300px] p-0" dir="rtl">
