@@ -5,7 +5,8 @@ import { CountryPicker } from "./ConsultForm";
 
 // Static render (no DOM library is installed in this project): the closed trigger shows either the chosen
 // country with its dial code or a neutral prompt, never something that reads like a selected country.
-const render = (value: string, error?: string) => renderToStaticMarkup(<CountryPicker value={value} onChange={() => undefined} error={error} />);
+const render = (value: string, error?: string) =>
+  renderToStaticMarkup(<CountryPicker value={value} onChange={() => undefined} error={error} />);
 
 describe("CountryPicker trigger", () => {
   it("shows a neutral prompt and no country or dial code while nothing is selected", () => {
