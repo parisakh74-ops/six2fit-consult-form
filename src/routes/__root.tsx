@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import faviconHref from "../assets/brand/6toFit_logo_Black_1.svg";
+import faviconPngHref from "../assets/brand/6toFit_logo_Black_1_64.png";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
@@ -98,6 +99,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap",
       },
       { rel: "icon", href: faviconHref, type: "image/svg+xml" },
+      // PNG fallback for browsers with limited SVG favicon support (e.g. Safari)
+      { rel: "icon", href: faviconPngHref, type: "image/png", sizes: "64x64" },
     ],
   }),
   shellComponent: RootShell,

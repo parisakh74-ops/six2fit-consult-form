@@ -48,7 +48,9 @@ import {
   welcomeCopy,
   type SafetyOutcome,
 } from "./assessmentConfig";
-import { budgetOptionsFor, schemaForStep } from "./schema";
+import { toAsciiDigits } from "./outcome";
+import { phonePlaceholder } from "./phonePlaceholder";
+import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
 import { buildPayload, createSubmissionId, submitConsultToCRM } from "./crm";
 import type { ConsultAnswers } from "./types";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -324,12 +326,13 @@ export function ConsultForm() {
                 inputMode="tel"
                 dir="ltr"
                 autoComplete="tel"
-                placeholder="912 345 6789"
+                placeholder={phonePlaceholder(values.whatsapp_country)}
                 value={values.whatsapp_phone ?? ""}
-                onChange={(e) => set("whatsapp_phone", e.target.value)}
+                onChange={(e) => set("whatsapp_phone", toAsciiDigits(e.target.value))}
                 error={err("whatsapp_phone")}
               />
             </div>
+            <p className="-mt-4 text-[13px] text-muted-foreground">{phoneInputHelper}</p>
             <RadioCards
               name="consult_channel"
               legend="ترجیح می‌دهید مشاوره اولیه چگونه انجام شود؟"
