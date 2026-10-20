@@ -88,7 +88,7 @@ const fails = async (p: Promise<unknown>) => {
   throw new Error("expected a StoreError");
 };
 const service = (store: LedgerConsultStore, logs: unknown[] = []) =>
-  createConsultService({ store, tokenSecret: SECRET, onboardingBaseUrl: BASE, log: (e, f) => logs.push({ e, f }) });
+  createConsultService({ store, log: (e, f) => logs.push({ e, f }) });
 const send = (svc: ReturnType<typeof service>, payload: any) => svc.submit({ contentType: JSON_CT, idempotencyKey: payload.submission_id, body: JSON.stringify(payload) });
 const seed = (id: string, over: Partial<LedgerEntry>): LedgerEntry => ({ v: 1, id, gen: 1, fp: fingerprint(nine(id)), state: "in_progress", phase: "sending", attempts: 1, started: T0, updated: T0, ...over });
 
@@ -454,7 +454,7 @@ describe("payload integrity and contract", () => {
     expect(rec.Module_Answers).toHaveLength(9);
     const view = await w.worker().store.getSubmission(id);
     expect(view!.stored.payload).toEqual(payload);
-    expect(Object.keys(r.body as any).sort()).toEqual(["crm_record_id", "deduplicated", "ok", "onboarding_url"]);
+    expect(Object.keys(r.body as any).sort()).toEqual(["crm_record_id", "deduplicated", "ok"]);
   });
 
   it("a corrupt ledger entry fails closed", async () => {

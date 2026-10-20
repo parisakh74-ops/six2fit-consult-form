@@ -13,7 +13,6 @@ import { createConsultService } from "../../service";
 import { StoreError, type StoredConsult } from "../../store";
 import { createCrmConsultStore } from "../factory";
 import { MODULE_KEYS, FIRST_FLAG, moduleAnswer, payloadFrom, tamper } from "../../fixtures";
-import { signHandoff, verifyHandoff } from "../../../staging-handoff";
 import { CrmConsultStore } from "../crm-store";
 
 vi.setConfig({ testTimeout: 240_000 });
@@ -162,8 +161,7 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
   });
 
   it("L7 service + CrmStore: created, deduplicated retry, conflicting retry (409), Onboarding token intact", async () => {
-    const SECRET = "synthetic-live-secret-0123456789abcdef";
-    const service = createConsultService({ store, tokenSecret: SECRET, onboardingBaseUrl: new URL("https://onboarding-staging.example.test/"), log: () => undefined });
+    const service = createConsultService({ store, log: () => undefined });
     const id = mkId(2);
     const p = nine(id);
     const send = (x: any) => service.submit({ contentType: "application/json; charset=utf-8", idempotencyKey: x.submission_id, body: JSON.stringify(x) });
@@ -173,9 +171,7 @@ describe.skipIf(!LIVE)("LIVE CA Dev sandbox: Consultation_Submissions", () => {
     expect((first.body as any).crm_record_id).toMatch(/^\d{10,25}$/);
     created.push(`${id} -> ${(first.body as any).crm_record_id}`);
     note("LIVE-RECORD", `${id} -> ${(first.body as any).crm_record_id}`);
-    const claims = verifyHandoff(new URL((first.body as any).onboarding_url).searchParams.get("session") as string, SECRET);
-    expect(claims.consult_submission_id).toBe(id);
-    expect(typeof signHandoff).toBe("function");
+    expect((first.body as any).onboarding_url).toBeUndefined(); // O1
     const retry = await send(tamper(p, (x) => (x.submitted_at = "2026-10-13T12:00:00.000Z")));
     expect(retry.status).toBe(200);
     expect((retry.body as any).deduplicated).toBe(true);

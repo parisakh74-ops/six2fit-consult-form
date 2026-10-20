@@ -1,5 +1,4 @@
 import { FORM_VERSION } from "../../features/consult/assessmentConfig";
-import { scopeFromServices, signHandoff } from "../staging-handoff";
 import { fingerprint, legacyPayloadHash } from "./canonical";
 import {
   DEFAULT_MAX_BODY_BYTES,
@@ -12,10 +11,6 @@ import { validateConsultPayload } from "./validate";
 
 export type ConsultServiceDeps = {
   store: ConsultStore;
-  /** HMAC secret of the onboarding handoff token (>= 32 chars, validated by the caller). */
-  tokenSecret: string;
-  /** Base URL of the onboarding application. */
-  onboardingBaseUrl: URL;
   now?: () => number;
   maxBodyBytes?: number;
   /** Structured logger; receives codes and counters only, never answers, ids or paths. */
@@ -29,9 +24,6 @@ export type ConsultSubmitInput = {
   body: string;
 };
 
-/** Token lifetime of the onboarding handoff (unchanged contract: 24 h). */
-export const HANDOFF_TTL_SECONDS = 60 * 60 * 24;
-
 export function recordRef(submissionId: string): string {
   // Kept as `staging_<id>` while CRM is not connected (same meaning as before).
   return `staging_${submissionId}`;
@@ -43,19 +35,6 @@ export function createConsultService(deps: ConsultServiceDeps) {
   const maxBody = deps.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const log = deps.log ?? (() => undefined);
 
-  function onboardingUrl(submissionId: string, services: unknown): string {
-    const claims = {
-      v: 1 as const,
-      consult_submission_id: submissionId,
-      scope: scopeFromServices(services),
-      entitlements: [] as string[],
-      exp: Math.floor(now() / 1000) + HANDOFF_TTL_SECONDS,
-    };
-    const url = new URL(deps.onboardingBaseUrl);
-    url.searchParams.set("session", signHandoff(claims, deps.tokenSecret));
-    return url.toString();
-  }
-
   function success(submissionId: string, payload: Record<string, unknown>, deduplicated: boolean, ref: string): ConsultResult {
     return {
       status: 200,
@@ -63,8 +42,6 @@ export function createConsultService(deps: ConsultServiceDeps) {
         ok: true,
         crm_record_id: ref,
         deduplicated,
-        // Always a fresh token: a deduplicated retry must never return an expired URL.
-        onboarding_url: onboardingUrl(submissionId, payload["service_interest"]),
       },
     };
   }

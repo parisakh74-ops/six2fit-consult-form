@@ -58,8 +58,6 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   const maxBodyBytes = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : DEFAULT_MAX_BODY_BYTES;
   const service = createConsultService({
     store,
-    tokenSecret: config.secret,
-    onboardingBaseUrl: config.onboardingBaseUrl,
     maxBodyBytes,
     log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
   });

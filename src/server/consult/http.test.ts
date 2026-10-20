@@ -11,7 +11,7 @@ const HOST = "https://consult-staging.example.test";
 const SECRET = "synthetic-test-secret-0123456789abcdef-xyz";
 
 function runtime(store = new MemoryStore(), maxBodyBytes = 128 * 1024) {
-  const service = createConsultService({ store, tokenSecret: SECRET, onboardingBaseUrl: new URL("https://onboarding-staging.example.test/"), maxBodyBytes });
+  const service = createConsultService({ store, maxBodyBytes });
   const spy = vi.spyOn(service, "submit");
   return { runtime: () => ({ service, maxBodyBytes }), spy, store };
 }

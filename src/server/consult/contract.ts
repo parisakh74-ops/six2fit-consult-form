@@ -2,7 +2,7 @@
  * Consultation submit API - shared contract (framework independent).
  *
  * Success body (unchanged, backward compatible):
- *   { ok: true, crm_record_id, deduplicated, onboarding_url }
+ *   { ok: true, crm_record_id, deduplicated }
  * Error body (superset of the legacy `{ error_code }`):
  *   { ok: false, error_code, issues? }   - `issues` carries paths and codes only, never values.
  */
@@ -48,7 +48,6 @@ export type ConsultSuccessBody = {
   ok: true;
   crm_record_id: string;
   deduplicated: boolean;
-  onboarding_url: string;
 };
 
 export type ConsultErrorBody = {

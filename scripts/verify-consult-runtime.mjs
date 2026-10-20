@@ -50,9 +50,7 @@ const env = {
   PORT: port,
   HOST: "127.0.0.1",
   SIX2FIT_STAGING_MODE: "true",
-  SIX2FIT_STAGING_TOKEN_SECRET: randomBytes(24).toString("hex"),
   SIX2FIT_STAGING_STORAGE_DIR: store,
-  ONBOARDING_STAGING_BASE_URL: "https://onboarding-staging.example.test/",
   TRACE_FILE: trace,
   NODE_OPTIONS: `--import=file:///${preload.replace(/\\/g, "/")}`,
 };

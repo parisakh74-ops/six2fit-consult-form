@@ -3,9 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { verifyHandoff, signHandoff } from "../staging-handoff";
 import { fingerprint, legacyPayloadHash } from "./canonical";
-import { createConsultService, HANDOFF_TTL_SECONDS, recordRef } from "./service";
+import { createConsultService, recordRef } from "./service";
 import { FileConsultStore, StoreError } from "./store";
 import { MemoryStore, SUBMISSION_ID, moduleAnswer, newId, payloadFrom, tamper } from "./fixtures";
 
@@ -24,8 +23,8 @@ function make(opts: { store?: any; now?: () => number; logs?: any[]; max?: numbe
   const logs = opts.logs ?? [];
   const service = createConsultService({
     store,
-    tokenSecret: SECRET,
-    onboardingBaseUrl: BASE,
+    
+    
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.max ? { maxBodyBytes: opts.max } : {}),
     log: (event, fields) => logs.push({ event, ...fields }),
@@ -41,13 +40,13 @@ const send = (service: ReturnType<typeof make>["service"], payload: unknown, ove
 const session = (url: string) => new URL(url).searchParams.get("session") as string;
 
 describe("success contract", () => {
-  it("returns { ok, crm_record_id, deduplicated, onboarding_url } and stores the payload losslessly", async () => {
+  it("returns { ok, crm_record_id, deduplicated } (no Onboarding URL) and stores the payload losslessly", async () => {
     const { service, store } = make();
     const payload = payloadFrom();
     const r = await send(service, payload);
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ok: true, crm_record_id: recordRef(SUBMISSION_ID), deduplicated: false });
-    expect(Object.keys(r.body).sort()).toEqual(["crm_record_id", "deduplicated", "ok", "onboarding_url"]);
+    expect(Object.keys(r.body).sort()).toEqual(["crm_record_id", "deduplicated", "ok"]);
     const stored = await (store as FileConsultStore).get(SUBMISSION_ID);
     expect(stored?.payload).toEqual(JSON.parse(JSON.stringify(payload)));
     expect(stored?.version).toBe(2);
@@ -62,23 +61,17 @@ describe("success contract", () => {
 });
 
 describe("idempotency", () => {
-  it("identical retry (new submitted_at) is deduplicated and returns a fresh, valid token", async () => {
+  it("identical retry (new submitted_at) is deduplicated and still carries no Onboarding access", async () => {
     let t = Date.UTC(2026, 9, 12, 10, 0, 0);
     const { service } = make({ now: () => t });
     const payload = payloadFrom();
     const first = await send(service, payload);
-    // Parse the claims directly: verifyHandoff checks expiry against the REAL clock, and the fixed fake date above is
-    // in the past once 24 h have elapsed in real time (this test used to start failing a day after it was written).
-    const firstExp = JSON.parse(Buffer.from(session((first.body as any).onboarding_url).split(".")[0] as string, "base64url").toString()).exp;
-
-    t += 25 * 3600 * 1000; // 25 h later: the original token would be expired
+    expect((first.body as any).onboarding_url).toBeUndefined();
+    t += 25 * 3600 * 1000;
     const retry = await send(service, { ...payload, submitted_at: new Date(t).toISOString() });
     expect(retry.status).toBe(200);
     expect(retry.body).toMatchObject({ deduplicated: true, crm_record_id: recordRef(SUBMISSION_ID) });
-    const claims = JSON.parse(Buffer.from(session((retry.body as any).onboarding_url).split(".")[0] as string, "base64url").toString());
-    expect(claims.exp).toBe(Math.floor(t / 1000) + HANDOFF_TTL_SECONDS);
-    expect(claims.exp).toBeGreaterThan(firstExp);
-    expect(claims.exp * 1000).toBeGreaterThan(t);
+    expect(Object.keys(retry.body).sort()).toEqual(["crm_record_id", "deduplicated", "ok"]);
   });
 
   it("same id with a different payload -> 409 SUBMISSION_CONFLICT", async () => {
@@ -174,7 +167,7 @@ describe("failure and recovery", () => {
     const { service } = make();
     const r = await send(service, payload);
     expect(r.body).toMatchObject({ ok: true, deduplicated: true, crm_record_id: `staging_${SUBMISSION_ID}` });
-    expect((r.body as any).onboarding_url).not.toContain("stale");
+    expect(JSON.stringify(r.body)).not.toMatch(/stale|onboarding/i); // a stored legacy URL is never replayed
   });
 
   it("an unsupported store selection is reported without details", async () => {
@@ -261,34 +254,21 @@ describe("fingerprint", () => {
   });
 });
 
-describe("onboarding token compatibility", () => {
-  it("round-trips with the existing verifier; scope and submission reference are bound", async () => {
+describe("O1: Consultation issues no Onboarding access", () => {
+  it("the service needs no signing secret and no Onboarding URL, and no response ever carries one", async () => {
     const { service } = make({ store: new MemoryStore() });
-    const cases: Array<[string[], string]> = [[["nutrition"], "Diet"], [["training"], "Training"], [["nutrition", "training"], "Combo"], [["nutrition_training"], "Combo"], [["not_sure"], "Combo"]];
-    for (const [i, [services, scope]] of cases.entries()) {
+    for (const [i, services] of [["nutrition"], ["training"], ["nutrition", "training"], ["not_sure"]].entries()) {
       const r = await send(service, payloadFrom({ service_interest: services as never }, newId(i + 10)));
-      const claims = verifyHandoff(session((r.body as any).onboarding_url), SECRET);
-      expect(claims).toMatchObject({ v: 1, consult_submission_id: newId(i + 10), scope, entitlements: [] });
-      expect(claims.exp).toBeGreaterThan(Math.floor(Date.now() / 1000) + HANDOFF_TTL_SECONDS - 5);
+      expect(r.status).toBe(200);
+      expect(JSON.stringify(r.body)).not.toMatch(/onboarding|session|token|https?:/i);
     }
   });
-  it("URL points at the configured onboarding base", async () => {
-    const { service } = make({ store: new MemoryStore() });
-    const url = new URL(((await send(service, payloadFrom())).body as any).onboarding_url);
-    expect(url.origin).toBe(BASE.origin);
+  it("service.ts and the staging configuration contain no hand-off signing", () => {
+    const src = readFileSync(join(__dirname, "service.ts"), "utf8") + readFileSync(join(__dirname, "..", "staging-handoff.ts"), "utf8");
+    expect(src).not.toMatch(/signHandoff|verifyHandoff|createHmac|tokenSecret|onboardingBaseUrl|ONBOARDING_STAGING_BASE_URL|SIX2FIT_STAGING_TOKEN_SECRET/);
   });
-  it("invalid signature and expired tokens are rejected by the existing verifier", async () => {
-    const { service } = make({ store: new MemoryStore() });
-    const token = session(((await send(service, payloadFrom())).body as any).onboarding_url);
-    expect(() => verifyHandoff(token, "another-secret-of-at-least-32-characters-long")).toThrow();
-    expect(() => verifyHandoff(`${token.split(".")[0]}.AAAA`, SECRET)).toThrow();
-    const expired = signHandoff({ v: 1, consult_submission_id: SUBMISSION_ID, scope: "Combo", entitlements: [], exp: Math.floor(Date.now() / 1000) - 10 }, SECRET);
-    expect(() => verifyHandoff(expired, SECRET)).toThrow();
-  });
-  it("token generation does not touch the file store", async () => {
-    const mem = new MemoryStore();
-    const { service } = make({ store: mem });
-    await send(service, payloadFrom());
-    expect(existsSync(join(dir, "consult"))).toBe(false);
+  it("the Consultation page has no Onboarding link or button", () => {
+    const ui = readFileSync(join(__dirname, "..", "..", "features", "consult", "ConsultForm.tsx"), "utf8");
+    expect(ui).not.toMatch(/onboarding_url|onboardingUrl|setOnboardingUrl/);
   });
 });

@@ -344,7 +344,7 @@ describe("D4 OAuth scope errors", () => {
     const { zoho, store } = setup();
     zoho.failNext(/Consultation_Submissions$/, scope, 20, "POST");
     const logs: any[] = [];
-    const service = createConsultService({ store, tokenSecret: "synthetic-test-secret-0123456789abcdef-xyz", onboardingBaseUrl: new URL("https://onboarding-staging.example.test/"), log: (e, f) => logs.push({ e, ...f }) });
+    const service = createConsultService({ store, log: (e, f) => logs.push({ e, ...f }) });
     const payload = payloadFrom({}, ids());
     const r = await service.submit({ contentType: "application/json; charset=utf-8", idempotencyKey: ids(), body: JSON.stringify(payload) });
     expect(r.status).toBe(503);
@@ -412,7 +412,7 @@ describe("E1 e-mail limited to the CRM field length (100 characters)", () => {
 
   it("end to end: a 100-character e-mail is stored; a 101-character one is rejected before storage (400, nothing stored)", async () => {
     const { zoho, store } = setup();
-    const service = createConsultService({ store, tokenSecret: "synthetic-test-secret-0123456789abcdef-xyz", onboardingBaseUrl: new URL("https://onboarding-staging.example.test/"), log: () => undefined });
+    const service = createConsultService({ store, log: () => undefined });
     const send = (payload: any) => service.submit({ contentType: "application/json; charset=utf-8", idempotencyKey: payload.submission_id, body: JSON.stringify(payload) });
     const ok = tamper(payloadFrom({}, newId(60)), (p) => {
       p.email = sample(100);

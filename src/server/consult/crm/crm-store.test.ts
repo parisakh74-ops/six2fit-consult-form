@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- tests inspect loosely typed JSON bodies and fault objects */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { signHandoff, verifyHandoff } from "../../staging-handoff";
 import { fingerprint } from "../canonical";
 import { createConsultService } from "../service";
 import { StoreError, createConsultStore, type StoredConsult } from "../store";
@@ -510,23 +509,21 @@ describe("environment safeguards (fail closed)", () => {
 
 describe("service integration (contract, idempotency, Onboarding token)", () => {
   const make = (zohoSetup = setup()) => {
-    const service = createConsultService({ store: zohoSetup.store, tokenSecret: SECRET, onboardingBaseUrl: BASE, log: () => undefined });
+    const service = createConsultService({ store: zohoSetup.store, log: () => undefined });
     return { ...zohoSetup, service };
   };
   const send = (service: ReturnType<typeof make>["service"], payload: unknown) =>
     service.submit({ contentType: JSON_CT, idempotencyKey: (payload as any).submission_id, body: JSON.stringify(payload) });
 
-  it("20: success body is unchanged, crm_record_id is the CRM id and the Onboarding token verifies", async () => {
+  it("20: success body carries no Onboarding URL, crm_record_id is the CRM id", async () => {
     const { service, zoho } = make();
     const payload = payloadFrom({}, newId(40));
     const r = await send(service, payload);
     expect(r.status).toBe(200);
-    expect(Object.keys(r.body).sort()).toEqual(["crm_record_id", "deduplicated", "ok", "onboarding_url"]);
+    expect(Object.keys(r.body).sort()).toEqual(["crm_record_id", "deduplicated", "ok"]);
     expect((r.body as any).crm_record_id).toBe(zoho.records[0]!.id);
     expect((r.body as any).deduplicated).toBe(false);
-    const claims = verifyHandoff(new URL((r.body as any).onboarding_url).searchParams.get("session") as string, SECRET);
-    expect(claims.consult_submission_id).toBe(newId(40));
-    expect(typeof signHandoff).toBe("function");
+    expect(JSON.stringify(r.body)).not.toMatch(/onboarding|session=/i); // O1: Consultation never returns Onboarding access
   });
 
   it("5+6: same submission retried -> deduplicated 200; changed answers -> 409; one record", async () => {
@@ -571,10 +568,10 @@ describe("service integration (contract, idempotency, Onboarding token)", () => 
   it("oversized or unmappable submissions are refused with 503, never stored partially", async () => {
     const m = make();
     const logs: any[] = [];
-    const service = createConsultService({ store: m.store, tokenSecret: SECRET, onboardingBaseUrl: BASE, log: (e, f) => logs.push({ e, ...f }) });
+    const service = createConsultService({ store: m.store, log: (e, f) => logs.push({ e, ...f }) });
     // A payload the service validates is far below the guard; force the guard with a tiny limit.
     const tiny = setup({ SIX2FIT_ZOHO_MAX_RAW_CHARS: "1000" });
-    const small = createConsultService({ store: tiny.store, tokenSecret: SECRET, onboardingBaseUrl: BASE, log: (e, f) => logs.push({ e, ...f }) });
+    const small = createConsultService({ store: tiny.store, log: (e, f) => logs.push({ e, ...f }) });
     const r = await send(small, payloadFrom({}, newId(45)));
     expect(r.status).toBe(503);
     expect(tiny.zoho.records).toHaveLength(0);
