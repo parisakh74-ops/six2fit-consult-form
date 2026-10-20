@@ -64,6 +64,8 @@ export type ConsultPayload = {
 
   lead_full_name: string;
   whatsapp_phone_normalized: string;
+  /** Dial code exactly as selected, e.g. "+1" (also derivable from the normalised number). */
+  whatsapp_dial_code: string;
   whatsapp_country: string | null;
   email: string | null;
   consult_channel: string;
@@ -87,8 +89,12 @@ export type ConsultPayload = {
   exercise_limitation: string | null;
   exercise_clearance: string | null;
   sport_categories: string[];
+  /** Complete answers of the ACTIVE sport modules only, keyed by module key. */
+  modules: Record<string, ModuleAnswer>;
   module_scores: Record<string, number>;
   hard_red_flags: string[];
+  nutrition_red_reasons: string[];
+  nutrition_yellow_reasons: string[];
 
   safety_outcome: SafetyOutcome;
   general_plan_eligible: boolean;

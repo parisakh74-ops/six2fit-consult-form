@@ -8,7 +8,7 @@
  * keys used by validation, scoring and the CRM payload.
  */
 
-export const FORM_VERSION = "consult-2.0.0";
+export const FORM_VERSION = "consult-2.1.0";
 export const CONSENT_VERSION = "consent-1.0.0";
 
 export type Severity = "RED" | "YELLOW" | null;
@@ -161,6 +161,9 @@ export const exerciseScreeningTriggers = [
   "nutrition_training",
   "not_sure",
 ];
+
+/** Longest e-mail accepted: the CRM e-mail fields (Consultation Submissions, Leads, Contacts) hold 100 characters. */
+export const EMAIL_MAX_LENGTH = 100;
 
 export const limits = {
   age: { min: 14, max: 100 },

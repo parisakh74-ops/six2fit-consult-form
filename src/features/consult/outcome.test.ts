@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateOutcome, normalizePhone, scoreModule } from "./outcome";
+import { evaluateOutcome, getActiveClearance, normalizePhone, scoreModule } from "./outcome";
 import { budgetOptionsFor } from "./schema";
 import { budgetQuestions, currencyCountryFromDialCode } from "./assessmentConfig";
 import type { ConsultAnswers } from "./types";
@@ -177,7 +177,7 @@ describe("currency routing", () => {
 describe("phone normalization", () => {
   it("normalizes local Iranian numbers", () => {
     expect(normalizePhone("+98", "0912 345 6789")).toBe("+989123456789");
-    expect(normalizePhone("+98", "989123456789")).toBe("+989123456789");
+    expect(normalizePhone("+98", "+98 912 345 6789")).toBe("+989123456789");
   });
 });
 
@@ -193,5 +193,50 @@ describe("country search", () => {
     expect(searchCountries("ایر")[0]!.iso).toBe("IR");
     expect(searchCountries("ger")[0]!.iso).toBe("DE");
     expect(searchCountries("ae")[0]!.iso).toBe("AE");
+  });
+});
+
+describe("F1: TS-03 is inactive unless TS-01 is active", () => {
+  const cat = { tendon: { diagnosis: "x", onset: "gt_6m", recovery: "improving", pain: "none", reaction: "fine", clearance: "cleared", red_flags: [] } };
+  const active: Partial<ConsultAnswers> = { ...base, ts_01_has_limitation: "yes", ts_02_categories: ["tendon"], modules: cat };
+
+  it("getActiveClearance is empty for no / empty TS-01 and keeps the value otherwise", () => {
+    expect(getActiveClearance({ ts_01_has_limitation: "no", ts_03_clearance: "yes" })).toBe("");
+    expect(getActiveClearance({ ts_01_has_limitation: "", ts_03_clearance: "yes" })).toBe("");
+    expect(getActiveClearance({ ts_03_clearance: "yes" })).toBe("");
+    expect(getActiveClearance({ ts_01_has_limitation: "yes", ts_03_clearance: "yes" })).toBe("yes");
+    expect(getActiveClearance({ ts_01_has_limitation: "unsure", ts_03_clearance: "not_assessed" })).toBe("not_assessed");
+  });
+
+  it("yes(ban) -> TS-01 back to no: stale ban no longer makes the outcome RED", () => {
+    expect(evaluateOutcome({ ...active, ts_03_clearance: "yes" }).safety_outcome).toBe("RED_SPECIALIST");
+    const result = evaluateOutcome({ ...active, ts_01_has_limitation: "no", ts_03_clearance: "yes" });
+    expect(result.safety_outcome).toBe("GREEN");
+    expect(result.hard_red_flags).toEqual([]);
+    expect(result.general_plan_eligible).toBe(true);
+  });
+
+  it("not_assessed -> TS-01 back to no: stale yellow no longer applies", () => {
+    expect(evaluateOutcome({ ...active, ts_03_clearance: "not_assessed" }).nutrition_yellow_reasons).toContain("TS-03");
+    const result = evaluateOutcome({ ...base, ts_03_clearance: "not_assessed" });
+    expect(result.nutrition_yellow_reasons).not.toContain("TS-03");
+    expect(result.safety_outcome).toBe("GREEN");
+  });
+
+  it("no -> yes with a fresh TS-03 answer is scored normally (valid active answers kept)", () => {
+    expect(evaluateOutcome({ ...active, ts_03_clearance: "yes" }).hard_red_flags).toContain("exercise_clearance:training_banned");
+    expect(evaluateOutcome({ ...active, ts_03_clearance: "no" }).safety_outcome).toBe("GREEN");
+  });
+
+  it("independent RED conditions are preserved when TS-01 is no", () => {
+    const result = evaluateOutcome({ ...base, health_flags: ["liver_cirrhosis_failure"], ts_03_clearance: "yes" });
+    expect(result.safety_outcome).toBe("RED_SPECIALIST");
+    expect(result.nutrition_red_reasons).toContain("liver_cirrhosis_failure");
+    expect(evaluateOutcome({ ...base, age: 16, ts_03_clearance: "yes" }).safety_outcome).toBe("RED_SPECIALIST");
+  });
+
+  it("module red flags still apply while TS-01 is active", () => {
+    const res = evaluateOutcome({ ...active, ts_03_clearance: "no", modules: { tendon: { ...cat.tendon, red_flags: ["chest_pain"] } } });
+    expect(Array.isArray(res.hard_red_flags)).toBe(true);
   });
 });

@@ -19,7 +19,7 @@ npm run build:shetaban
 
 - Application root: the staging domain document root
 - Startup file: `passenger.cjs`
-- Node.js: 20.x on the host
+- Node.js: 22.x on the host (verified 22.23.3 in cPanel, 2026-10-13)
 - Application mode: production
 
 The server-only environment variables must be entered in cPanel's Node.js

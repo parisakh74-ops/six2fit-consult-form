@@ -48,7 +48,9 @@ import {
   welcomeCopy,
   type SafetyOutcome,
 } from "./assessmentConfig";
-import { budgetOptionsFor, schemaForStep } from "./schema";
+import { toAsciiDigits } from "./outcome";
+import { phonePlaceholder } from "./phonePlaceholder";
+import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
 import { buildPayload, createSubmissionId, submitConsultToCRM } from "./crm";
 import type { ConsultAnswers } from "./types";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -324,12 +326,13 @@ export function ConsultForm() {
                 inputMode="tel"
                 dir="ltr"
                 autoComplete="tel"
-                placeholder="912 345 6789"
+                placeholder={phonePlaceholder(values.whatsapp_country)}
                 value={values.whatsapp_phone ?? ""}
-                onChange={(e) => set("whatsapp_phone", e.target.value)}
+                onChange={(e) => set("whatsapp_phone", toAsciiDigits(e.target.value))}
                 error={err("whatsapp_phone")}
               />
             </div>
+            <p className="-mt-4 text-[13px] text-muted-foreground">{phoneInputHelper}</p>
             <RadioCards
               name="consult_channel"
               legend="ترجیح می‌دهید مشاوره اولیه چگونه انجام شود؟"
@@ -472,7 +475,11 @@ export function ConsultForm() {
               required
               options={ts01.options}
               value={values.ts_01_has_limitation}
-              onChange={(v) => set("ts_01_has_limitation", v)}
+              onChange={(v) => {
+                set("ts_01_has_limitation", v);
+                // TS-03 is only asked while TS-01 is active; drop a stale answer.
+                if (v === "no") set("ts_03_clearance", "");
+              }}
               error={err("ts_01_has_limitation")}
             />
             {values.ts_01_has_limitation && values.ts_01_has_limitation !== "no" ? (
@@ -743,7 +750,7 @@ function HealthChecklist({
   );
 }
 
-function CountryPicker({
+export function CountryPicker({
   value,
   onChange,
   error,
@@ -776,7 +783,7 @@ function CountryPicker({
               <span className="truncate">{current.fa}</span>
             </span>
             <span dir="ltr" className="tabular-nums text-muted-foreground">{current.dial}</span>
-            </> : <span dir="ltr" className="text-muted-foreground">Canada +1</span>}
+            </> : <span className="text-muted-foreground">انتخاب کنید</span>}
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[300px] p-0" dir="rtl">

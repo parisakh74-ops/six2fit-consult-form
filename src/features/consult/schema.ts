@@ -1,12 +1,30 @@
 import { z } from "zod";
 import {
+  EMAIL_MAX_LENGTH,
   budgetQuestions,
   limits,
   sportModuleByKey,
   systemCopy,
 } from "./assessmentConfig";
+import { parseWhatsappPhone, toAsciiDigits, type PhoneRejection } from "./outcome";
 
 const req = systemCopy.required;
+
+/** Helper text under the phone field. */
+export const phoneInputHelper =
+  "شماره را بدون کد کشور وارد کنید. برای واردکردن شماره بین‌المللی، از + یا 00 در ابتدای شماره استفاده کنید.";
+
+/** Messages for the phone input contract (DEF-05). MISSING_DIAL_CODE/EMPTY are reported by the field rules. */
+export const phoneRejectionMessage: Record<PhoneRejection, string | null> = {
+  MISSING_DIAL_CODE: null,
+  EMPTY: null,
+  INVALID_CHARACTERS: "فقط از ارقام و علامت‌های مجاز شماره تلفن استفاده کنید.",
+  COUNTRY_CODE_MISMATCH: "کد کشور شماره با کشور انتخاب‌شده مطابقت ندارد.",
+  LEADING_CALLING_CODE: "شماره ملی را بدون کد کشور وارد کنید، یا شماره کامل را با + شروع کنید.",
+  INVALID_NUMBER: "این شماره برای کشور انتخاب‌شده معتبر نیست. لطفاً بررسی کنید.",
+  TOO_SHORT: "شماره خیلی کوتاه است؛ بدون کد کشور دست‌کم ۷ رقم لازم است",
+  TOO_LONG: "شماره خیلی بلند است؛ بدون کد کشور حداکثر ۱۳ رقم مجاز است",
+};
 
 const num = (min: number, max: number, unit: string) =>
   z.preprocess(
@@ -19,31 +37,44 @@ const num = (min: number, max: number, unit: string) =>
 
 const optionalText = z.string().trim().max(500).optional().or(z.literal(""));
 
-export const contactSchema = z.object({
-  lead_full_name: z
-    .string({ required_error: req })
-    .trim()
-    .min(1, req)
-    .min(3, "نام و نام خانوادگی را کامل وارد کنید")
-    .max(80, "نام واردشده طولانی است")
-    .regex(/^[\p{L}\p{M}\u200C\s'.-]+$/u, "نام فقط می‌تواند شامل حروف باشد"),
-  whatsapp_dial_code: z.string().min(2, req),
-  whatsapp_phone: z
-    .string({ required_error: req })
-    .trim()
-    .min(1, req)
-    .min(6, "شماره واتساپ معتبر نیست")
-    .max(20, "شماره واتساپ معتبر نیست")
-    .regex(/^[\d\s()+-]+$/, "شماره واتساپ فقط می‌تواند شامل عدد باشد"),
-  consult_channel: z.string({ required_error: req }).min(1, req),
-  email: z
-    .string()
-    .trim()
-    .max(120)
-    .email("ایمیل معتبر نیست")
-    .optional()
-    .or(z.literal("")),
-});
+export const contactSchema = z
+  .object({
+    lead_full_name: z
+      .string({ required_error: req })
+      .trim()
+      .min(1, req)
+      .min(3, "نام و نام خانوادگی را کامل وارد کنید")
+      .max(80, "نام واردشده طولانی است")
+      .regex(/^[\p{L}\p{M}\u200C\s'.-]+$/u, "نام فقط می‌تواند شامل حروف باشد"),
+    whatsapp_dial_code: z.string().min(2, req),
+    // Persian and Arabic-Indic digits are converted to ASCII before the character check (DEF-05).
+    whatsapp_phone: z.preprocess(
+      (v) => (typeof v === "string" ? toAsciiDigits(v) : v),
+      z
+        .string({ required_error: req })
+        .trim()
+        .min(1, req)
+        .min(6, "شماره واتساپ معتبر نیست")
+        .max(20, "شماره واتساپ معتبر نیست")
+        .regex(/^[\d\s()+-]+$/, "شماره واتساپ فقط می‌تواند شامل عدد باشد"),
+    ),
+    consult_channel: z.string({ required_error: req }).min(1, req),
+    email: z
+      .string()
+      .trim()
+      .max(EMAIL_MAX_LENGTH, "ایمیل نباید بیشتر از ۱۰۰ کاراکتر باشد")
+      .email("ایمیل معتبر نیست")
+      .optional()
+      .or(z.literal("")),
+  })
+  .superRefine((data, ctx) => {
+    // Input contract (DEF-05): national number by default, explicit + / 00 for international numbers.
+    if (data.whatsapp_dial_code.length < 2 || data.whatsapp_phone.trim() === "") return; // reported by the field rules
+    const parsed = parseWhatsappPhone(data.whatsapp_dial_code, data.whatsapp_phone);
+    if (parsed.ok) return;
+    const message = phoneRejectionMessage[parsed.reason];
+    if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["whatsapp_phone"], message });
+  });
 
 export const goalSchema = z
   .object({
