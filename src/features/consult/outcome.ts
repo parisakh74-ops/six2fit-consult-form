@@ -7,6 +7,7 @@ import {
   ts03,
   type SafetyOutcome,
 } from "./assessmentConfig";
+import { parsePhoneNumberFromString } from "libphonenumber-js/min";
 import type { ConsultAnswers, ModuleAnswer, OutcomeResult } from "./types";
 
 /** Score a single sport module in isolation. */
@@ -159,11 +160,95 @@ export function evaluateOutcome(answers: Partial<ConsultAnswers>): OutcomeResult
   };
 }
 
-/** Digits-only E.164-style normalization used for CRM deduplication. */
-export function normalizePhone(dialCode: string, raw: string): string {
+export type PhoneRejection =
+  | "MISSING_DIAL_CODE"
+  | "EMPTY"
+  | "INVALID_CHARACTERS"
+  | "COUNTRY_CODE_MISMATCH"
+  | "LEADING_CALLING_CODE"
+  | "INVALID_NUMBER"
+  | "TOO_SHORT"
+  | "TOO_LONG";
+
+export type PhoneParse =
+  | { ok: true; e164: string; national: string; international: boolean }
+  | { ok: false; reason: PhoneRejection };
+
+/**
+ * Converts Persian (U+06F0-06F9) and Arabic-Indic (U+0660-0669) digits to ASCII 0-9; every other character is left
+ * unchanged. It is applied before any character validation (form field, parser) so that mixed-script input behaves
+ * like ASCII input.
+ */
+export function toAsciiDigits(value: string): string {
+  return Array.from(value, (ch) => {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code >= 0x06f0 && code <= 0x06f9) return String(code - 0x06f0); // Persian
+    if (code >= 0x0660 && code <= 0x0669) return String(code - 0x0660); // Arabic-Indic
+    return ch;
+  }).join("");
+}
+
+/**
+ * Phone input contract (DEF-05). `dialCode` is the selected calling code (e.g. "+98").
+ * Persian and Arabic-Indic digits are converted to ASCII first (`toAsciiDigits`).
+ * Trunk prefixes, significant leading zeros and the general national-number length/pattern check come from
+ * libphonenumber-js, the JavaScript port of Google's libphonenumber, using its "min" metadata; no country rules are
+ * hand-written. "min" validates length and the general pattern only: it is not exhaustive validation (it can accept
+ * unassigned numbers that the "max" metadata would reject, and it does not detect number types).
+ *  - Starts with `+` or `00`: explicitly international. The digits must start with the selected calling code
+ *    (otherwise COUNTRY_CODE_MISMATCH) and form a valid number.
+ *  - Otherwise: a national number for the selected calling code, parsed with libphonenumber's national rules (so the
+ *    country's own trunk prefix is handled: Iran 0, Russia 8, UK 0; Italy keeps its 0). If parsing would drop leading
+ *    digits equal to the calling code (for example "1 416…" or "91 98765…"), the input is rejected instead of guessed.
+ *  - The national part must also be 7-13 digits (the range Onboarding accepts; keeps the prefill compatible).
+ * Separators ` ()-` are ignored. Anything unreadable, invalid for the country, or ambiguous is rejected.
+ * This does not prove that the number exists or is reachable on WhatsApp.
+ */
+export function parseWhatsappPhone(dialCode: string, raw: string): PhoneParse {
   const cc = dialCode.replace(/\D/g, "");
-  let local = raw.replace(/[^\d]/g, "");
-  local = local.replace(/^0+/, "");
-  if (cc && local.startsWith(cc)) local = local.slice(cc.length);
-  return `+${cc}${local}`;
+  if (!/^\d{1,4}$/.test(cc)) return { ok: false, reason: "MISSING_DIAL_CODE" };
+  const compact = toAsciiDigits(raw)
+    .trim()
+    .replace(/[\s()-]/g, "");
+  if (compact === "") return { ok: false, reason: "EMPTY" };
+
+  let international = false;
+  let digits = compact;
+  if (compact.startsWith("+")) {
+    international = true;
+    digits = compact.slice(1);
+  } else if (compact.startsWith("00")) {
+    international = true;
+    digits = compact.slice(2);
+  }
+  if (!/^\d+$/.test(digits)) return { ok: false, reason: "INVALID_CHARACTERS" };
+
+  if (international && !digits.startsWith(cc))
+    return { ok: false, reason: "COUNTRY_CODE_MISMATCH" };
+  const parsed = international
+    ? parsePhoneNumberFromString(`+${digits}`)
+    : parsePhoneNumberFromString(digits, { defaultCallingCode: cc });
+  if (!parsed || parsed.countryCallingCode !== cc || !parsed.isValid())
+    return { ok: false, reason: "INVALID_NUMBER" };
+
+  const national = parsed.nationalNumber;
+  if (!international) {
+    const removed = digits.slice(0, digits.length - national.length);
+    if (!digits.endsWith(national) || removed === cc || removed.length > 2) {
+      return { ok: false, reason: "LEADING_CALLING_CODE" };
+    }
+  }
+  if (national.length < 7) return { ok: false, reason: "TOO_SHORT" };
+  if (national.length > 13 || cc.length + national.length > 15)
+    return { ok: false, reason: "TOO_LONG" };
+  return { ok: true, e164: `+${cc}${national}`, national, international };
+}
+
+/**
+ * E.164 value (`+<calling code><national number>`) used for the WhatsApp number, CRM deduplication and the Onboarding
+ * prefill, or "" when the input is invalid or ambiguous (fail closed). The server re-applies it to the stored value.
+ */
+export function normalizePhone(dialCode: string, raw: string): string {
+  const parsed = parseWhatsappPhone(dialCode, raw);
+  return parsed.ok ? parsed.e164 : "";
 }

@@ -48,7 +48,9 @@ import {
   welcomeCopy,
   type SafetyOutcome,
 } from "./assessmentConfig";
-import { budgetOptionsFor, schemaForStep } from "./schema";
+import { toAsciiDigits } from "./outcome";
+import { phonePlaceholder } from "./phonePlaceholder";
+import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
 import { buildPayload, createSubmissionId, submitConsultToCRM } from "./crm";
 import type { ConsultAnswers } from "./types";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -262,10 +264,10 @@ export function ConsultForm() {
         {step === 0 ? (
           <div className="space-y-6">
             <div className="space-y-3">
-              <h1 className="text-2xl font-bold leading-10 text-foreground sm:text-[28px]">
+              <h1 className="text-[24px] font-medium leading-8 text-foreground sm:text-[28px] sm:leading-10">
                 {welcomeCopy.title}
               </h1>
-              <p className="text-[15px] leading-8 text-muted-foreground">
+              <p className="text-[16px] leading-7 text-muted-foreground">
                 {welcomeCopy.description}
               </p>
             </div>
@@ -317,12 +319,13 @@ export function ConsultForm() {
                 inputMode="tel"
                 dir="ltr"
                 autoComplete="tel"
-                placeholder="912 345 6789"
+                placeholder={phonePlaceholder(values.whatsapp_country)}
                 value={values.whatsapp_phone ?? ""}
-                onChange={(e) => set("whatsapp_phone", e.target.value)}
+                onChange={(e) => set("whatsapp_phone", toAsciiDigits(e.target.value))}
                 error={err("whatsapp_phone")}
               />
             </div>
+            <p className="-mt-4 text-[13px] text-muted-foreground">{phoneInputHelper}</p>
             <RadioCards
               name="consult_channel"
               legend="ترجیح می‌دهید مشاوره اولیه چگونه انجام شود؟"
@@ -616,7 +619,7 @@ export function ConsultForm() {
 
         {/* ---------------- navigation ---------------- */}
         {step > 0 ? (
-          <div className="mt-8 border-t border-border pt-6">
+          <div className="mt-10 border-t border-border pt-6">
             <div className="flex flex-col gap-2.5 sm:flex-row-reverse sm:items-center">
               {isLastStep ? (
                 <PrimaryButton
@@ -740,7 +743,7 @@ function HealthChecklist({
   );
 }
 
-function CountryPicker({
+export function CountryPicker({
   value,
   onChange,
   error,
@@ -773,7 +776,7 @@ function CountryPicker({
               <span className="truncate">{current.fa}</span>
             </span>
             <span dir="ltr" className="tabular-nums text-muted-foreground">{current.dial}</span>
-            </> : <span dir="ltr" className="text-muted-foreground">Canada +1</span>}
+            </> : <span className="text-muted-foreground">انتخاب کنید</span>}
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[300px] p-0" dir="rtl">

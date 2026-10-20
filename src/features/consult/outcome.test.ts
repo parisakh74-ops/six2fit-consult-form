@@ -177,7 +177,7 @@ describe("currency routing", () => {
 describe("phone normalization", () => {
   it("normalizes local Iranian numbers", () => {
     expect(normalizePhone("+98", "0912 345 6789")).toBe("+989123456789");
-    expect(normalizePhone("+98", "989123456789")).toBe("+989123456789");
+    expect(normalizePhone("+98", "+98 912 345 6789")).toBe("+989123456789");
   });
 });
 
