@@ -46,7 +46,7 @@ describe("signed Lead reference", () => {
     const forged = Buffer.from(JSON.stringify({ p: "consult-lead", lead: "6223361000127999002", exp: Math.floor(NOW / 1000) + 3600, jti: "jti-synthetic-0001" })).toString("base64url");
     expect(verifyLeadRef(`${v}.${forged}.${sig}`, SECRET, NOW)).toEqual({ state: "invalid" }); // another Lead id with the old signature
     expect(verifyLeadRef(t, OTHER, NOW)).toEqual({ state: "invalid" });
-    expect(verifyLeadRef(`${v}.${body}.${"0".repeat(64)}`, SECRET, NOW)).toEqual({ state: "invalid" });
+    expect(verifyLeadRef(`${v}.${body}.${"A".repeat(43)}`, SECRET, NOW)).toEqual({ state: "invalid" });
     for (const bad of ["", "x", "v2.a.b", `${v}.${body}`, "v1..", `${t} `, "6223361000127999001"]) expect(verifyLeadRef(bad, SECRET, NOW)).toEqual({ state: "invalid" });
     expect(verifyLeadRef(t, "short", NOW)).toEqual({ state: "invalid" });
     expect(verifyLeadRef(mint({ now: NOW - 7200_000, ttl: 3600 }), SECRET, NOW)).toEqual({ state: "expired" });
@@ -56,7 +56,7 @@ describe("signed Lead reference", () => {
   it("a reference minted for another purpose with the right key is refused", () => {
     const signedBody = `v1.${Buffer.from(JSON.stringify({ p: "onboarding", lead: LEAD, exp: Math.floor(NOW / 1000) + 3600, jti: "jti-synthetic-0001" })).toString("base64url")}`;
     // sign it correctly with the same key to prove the purpose claim itself is checked
-    const sig = createHmac("sha256", SECRET).update(signedBody).digest("hex") as string;
+    const sig = createHmac("sha256", SECRET).update(signedBody).digest("base64url");
     expect(verifyLeadRef(`${signedBody}.${sig}`, SECRET, NOW)).toEqual({ state: "invalid" });
   });
 });

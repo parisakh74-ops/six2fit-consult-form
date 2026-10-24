@@ -3,7 +3,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 /**
  * Signed Lead reference for the NEW Consultation link (`?lr=<token>`), minted by a CRM function for ONE existing Lead.
  *
- *   v1.<base64url(JSON claims)>.<hex HMAC-SHA256 over "v1." + base64url(JSON claims)>
+ *   v1.<base64url(JSON claims)>.<base64url HMAC-SHA256 over "v1." + base64url(JSON claims), no padding>
+ *
+ * The signature is base64url because the Zoho Deluge helper `zoho.encryption.hmacsha256` returns BASE64 (verified in the Sandbox,
+ * 2026-10-24); a CRM function converts it with three string replacements, no crypto of its own.
  *
  * Claims: `{ p: "consult-lead", lead: "<digits>", exp: <unix seconds>, jti: "<8-64 chars>" }`.
  *
@@ -18,11 +21,11 @@ export type LeadRefResult =
   | { state: "invalid" };
 
 const LEAD_ID = /^\d{6,25}$/;
-const TOKEN = /^v1\.([A-Za-z0-9_-]{10,2000})\.([0-9a-f]{64})$/;
+const TOKEN = /^v1\.([A-Za-z0-9_-]{10,2000})\.([A-Za-z0-9_-]{43})$/;
 export const MIN_LEAD_REF_SECRET_CHARS = 32;
 
 const b64u = (s: string): string => Buffer.from(s, "utf8").toString("base64url");
-const mac = (secret: string, signed: string): string => createHmac("sha256", secret).update(signed).digest("hex");
+const mac = (secret: string, signed: string): string => createHmac("sha256", secret).update(signed).digest("base64url");
 
 export function signLeadRef(input: { leadId: string; secret: string; nowSeconds: number; ttlSeconds: number; jti: string }): string {
   if (input.secret.length < MIN_LEAD_REF_SECRET_CHARS) throw new Error("LEAD_REF_SECRET_TOO_SHORT");
@@ -38,8 +41,8 @@ export function verifyLeadRef(token: string, secret: string, nowMs: number): Lea
   const m = TOKEN.exec(token);
   if (!m) return { state: "invalid" };
   const signed = `v1.${m[1]}`;
-  const expected = Buffer.from(mac(secret, signed), "hex");
-  const received = Buffer.from(m[2] as string, "hex");
+  const expected = Buffer.from(mac(secret, signed), "utf8");
+  const received = Buffer.from(m[2] as string, "utf8");
   if (received.length !== expected.length || !timingSafeEqual(received, expected)) return { state: "invalid" };
   let claims: unknown;
   try {
