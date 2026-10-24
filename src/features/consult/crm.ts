@@ -139,6 +139,9 @@ export function buildPayload(params: {
  *  - Map safety_outcome -> crm_status, set review_required / general_plan_eligible.
  *  - Append an audit-log entry with form_version and outcome changes.
  */
+/** The signed Lead reference of the link (`?lr=`), captured once at page load so in-page navigation cannot lose it. Never shown, never in the body. */
+const LEAD_REF: string | null = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("lr");
+
 export async function submitConsultToCRM(
   payload: ConsultPayload,
 ): Promise<SubmitResult> {
@@ -154,6 +157,7 @@ export async function submitConsultToCRM(
       Accept: "application/json",
       "Content-Type": "application/json",
       "Idempotency-Key": payload.submission_id,
+      ...(LEAD_REF ? { "X-S2F-Lead-Ref": LEAD_REF } : {}),
     },
     body: JSON.stringify(payload),
   });

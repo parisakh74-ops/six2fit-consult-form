@@ -6,6 +6,7 @@ import {
   errorResult,
   type ConsultResult,
 } from "./contract";
+import { verifyLeadRef } from "./lead-ref";
 import { StoreError, type ConsultStore, type StoredConsult } from "./store";
 import { validateConsultPayload } from "./validate";
 
@@ -13,6 +14,8 @@ export type ConsultServiceDeps = {
   store: ConsultStore;
   now?: () => number;
   maxBodyBytes?: number;
+  /** Secret that verifies the signed Lead reference (`SIX2FIT_CONSULT_LEAD_REF_SECRET`). Absent = the feature is off and a presented reference is ignored. */
+  leadRefSecret?: string;
   /** Structured logger; receives codes and counters only, never answers, ids or paths. */
   log?: (event: string, fields?: Record<string, string | number | boolean>) => void;
 };
@@ -22,6 +25,8 @@ export type ConsultSubmitInput = {
   idempotencyKey: string | null;
   /** Raw request body text (already limited by the HTTP layer; re-checked here). */
   body: string;
+  /** Signed Lead reference header (`x-s2f-lead-ref`), if the browser presented one. */
+  leadRef?: string | null;
 };
 
 export function recordRef(submissionId: string): string {
@@ -102,6 +107,15 @@ export function createConsultService(deps: ConsultServiceDeps) {
           : done(errorResult("SUBMISSION_CONFLICT"), "consult.conflict");
       }
 
+      // Identity of the link: verified here, never trusted from the body. Does not change the fingerprint or block the submission.
+      const presented = (input.leadRef ?? "").trim();
+      let identity: NonNullable<StoredConsult["identity"]> = { ref_state: "none" };
+      if (presented !== "" && deps.leadRefSecret) {
+        const v = verifyLeadRef(presented, deps.leadRefSecret, now());
+        identity = v.state === "valid" ? { ref_state: "valid", lead_id: v.leadId } : { ref_state: v.state };
+        log("consult.lead_ref", { state: v.state });
+      }
+
       const record: StoredConsult = {
         version: 2,
         submission_id: id,
@@ -109,6 +123,7 @@ export function createConsultService(deps: ConsultServiceDeps) {
         payload, // lossless: exactly what the browser sent (already validated, never filtered)
         record_ref: recordRef(id),
         created_at: new Date(now()).toISOString(),
+        identity,
       };
       const created = await deps.store.create(id, record);
       if (created.status === "created") return done(success(id, payload, false, created.record.record_ref ?? (record.record_ref as string)), "consult.created");

@@ -158,18 +158,23 @@ export class CrmConsultStore implements ConsultStore {
     this.assertId(submissionId);
     const { config } = this.deps;
     const association = this.deps.associations?.(submissionId, record.payload);
+    // A VERIFIED signed Lead reference (service) wins; an invalid/expired one never links and sends the record to review.
+    const ref = record.identity;
+    const verifiedLead = ref?.ref_state === "valid" ? ref.lead_id : undefined;
     const mapped = buildCrmRecord(record.payload, {
       receivedAt: new Date(this.deps.now()),
       payloadHash: record.payload_hash,
       maxRawPayloadChars: config.maxRawPayloadChars,
-      lead: association?.lead,
+      lead: verifiedLead ?? association?.lead,
+      status: ref?.ref_state === "invalid" || ref?.ref_state === "expired" ? "Needs Review" : undefined,
+      identityMatch: verifiedLead ? "Existing Lead" : undefined,
       contact: association?.contact,
       sandboxIdPrefix: config.moduleIdPrefix,
     });
     if (mapped.degraded.length > 0) this.log("crm.mapping.degraded", { fields: mapped.degraded.join(",") });
     await this.deps.client.verifyEnvironment();
 
-    const body = { data: [mapped.record], trigger: [] as string[] };
+    const body = { data: [mapped.record], trigger: config.triggerWorkflow ? ["workflow"] : ([] as string[]) };
     let lastError: StoreError | null = null;
 
     for (let attempt = 1; attempt <= config.maxAttempts; attempt += 1) {

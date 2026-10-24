@@ -56,9 +56,12 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   const store = createConsultStore(env, config.storageDir);
   const parsedLimit = Number(env["SIX2FIT_CONSULT_MAX_BODY_BYTES"]);
   const maxBodyBytes = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : DEFAULT_MAX_BODY_BYTES;
+  const leadRefSecret = (env["SIX2FIT_CONSULT_LEAD_REF_SECRET"] ?? "").trim();
+  if (leadRefSecret !== "" && leadRefSecret.length < 32) throw new StoreError("NOT_CONFIGURED", "lead reference secret too short", "CONFIG");
   const service = createConsultService({
     store,
     maxBodyBytes,
+    ...(leadRefSecret ? { leadRefSecret } : {}),
     log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
   });
   return { service, maxBodyBytes };
@@ -89,6 +92,7 @@ async function execute(request: Request, match: "submit" | "method_not_allowed",
   return runtime.service.submit({
     contentType: request.headers.get("content-type"),
     idempotencyKey: request.headers.get("idempotency-key"),
+    leadRef: request.headers.get("x-s2f-lead-ref"),
     body,
   });
 }

@@ -109,6 +109,10 @@ export type MappingOptions = {
   lead?: string | undefined;
   contact?: string | undefined;
   sandboxIdPrefix: string;
+  /** Initial status; default `Received`. `Needs Review` when a presented Lead reference was invalid or expired. */
+  status?: "Received" | "Needs Review" | undefined;
+  /** Set only together with a verified Lead reference. */
+  identityMatch?: "Existing Lead" | undefined;
 };
 
 export const toZohoDateTime = (iso: string | Date): string => {
@@ -213,7 +217,7 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
   if (submissionId.length > CRM_NAME_MAX) rejected("FIELD_TOO_LONG", "Name");
   out["Name"] = submissionId;
   out["Submission_ID"] = submissionId;
-  out["Status"] = "Received";
+  out["Status"] = opts.status ?? "Received";
 
   // Complete original payload: compact JSON, size checked on the real serialisation (UTF-16 length is a
   // conservative upper bound of Zoho's character count; bytes are irrelevant, verified in the Sandbox).
@@ -308,6 +312,7 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
     if (!/^\d{10,25}$/.test(value) || !value.startsWith(opts.sandboxIdPrefix)) rejected("INVALID_LOOKUP_ID", field);
     out[field] = { id: value };
   }
+  if (opts.identityMatch !== undefined && opts.lead !== undefined) out["Identity_Match"] = opts.identityMatch;
 
   return { record: out, degraded, rawChars };
 }

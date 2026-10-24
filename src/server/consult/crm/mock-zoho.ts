@@ -151,7 +151,9 @@ export class MockZoho {
         if (cps > limit) return invalid(k);
       }
     }
-    if (!body.trigger || !Array.isArray(body.trigger) || (body.trigger as unknown[]).length !== 0) {
+    // `[]` (no workflow, the default) or exactly `["workflow"]` (Lead bridge enabled); anything else is refused.
+    const trig = body.trigger as unknown[] | undefined;
+    if (!trig || !Array.isArray(trig) || !(trig.length === 0 || (trig.length === 1 && trig[0] === "workflow"))) {
       return json(400, { code: "INVALID_DATA", details: { api_name: "trigger" }, status: "error" });
     }
     const existing = this.records.find((r) => String(r["Submission_ID"]).toLowerCase() === sid.toLowerCase());
