@@ -109,7 +109,7 @@ export type MappingOptions = {
   lead?: string | undefined;
   contact?: string | undefined;
   sandboxIdPrefix: string;
-  /** Initial status; default `Received`. `Needs Review` when a presented Lead reference was invalid or expired. */
+  /** Initial status; default `Received` (the CRM-side resolver acts on `Received` only). */
   status?: "Received" | "Needs Review" | undefined;
   /** Set only together with a verified Lead reference. */
   identityMatch?: "Existing Lead" | undefined;

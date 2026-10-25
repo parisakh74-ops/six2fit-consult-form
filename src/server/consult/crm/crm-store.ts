@@ -158,7 +158,8 @@ export class CrmConsultStore implements ConsultStore {
     this.assertId(submissionId);
     const { config } = this.deps;
     const association = this.deps.associations?.(submissionId, record.payload);
-    // A VERIFIED signed Lead reference (service) wins; an invalid/expired one never links and sends the record to review.
+    // A VERIFIED signed Lead reference (service) wins. An invalid/expired one never links, but it does not divert the record either:
+    // the submission stays `Received` and the CRM-side resolver identifies the person by e-mail/phone (approved Lead creation rule).
     const ref = record.identity;
     const verifiedLead = ref?.ref_state === "valid" ? ref.lead_id : undefined;
     const mapped = buildCrmRecord(record.payload, {
@@ -166,7 +167,6 @@ export class CrmConsultStore implements ConsultStore {
       payloadHash: record.payload_hash,
       maxRawPayloadChars: config.maxRawPayloadChars,
       lead: verifiedLead ?? association?.lead,
-      status: ref?.ref_state === "invalid" || ref?.ref_state === "expired" ? "Needs Review" : undefined,
       identityMatch: verifiedLead ? "Existing Lead" : undefined,
       contact: association?.contact,
       sandboxIdPrefix: config.moduleIdPrefix,

@@ -98,12 +98,13 @@ describe("CRM association", () => {
     expect(zoho.records[0]!["Lead"]).toBeUndefined();
     expect(zoho.records[0]!["Identity_Match"]).toBeUndefined();
   });
-  it("invalid or expired reference: never linked, Status 'Needs Review'", async () => {
+  it("invalid or expired reference: never linked, stays 'Received' so the CRM resolver identifies the person by keys", async () => {
     for (const [i, state] of (["invalid", "expired"] as const).entries()) {
       const { zoho, store } = crmWorld();
       const p = nine(newId(10 + i));
       await store.create(p.submission_id, rec(p, { ref_state: state }));
-      expect(zoho.records[0]).toMatchObject({ Status: "Needs Review" });
+      expect(zoho.records[0]).toMatchObject({ Status: "Received" });
+      expect(zoho.records[0]!["Identity_Match"]).toBeUndefined();
       expect(zoho.records[0]!["Lead"]).toBeUndefined();
     }
   });
