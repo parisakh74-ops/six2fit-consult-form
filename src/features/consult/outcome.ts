@@ -1,5 +1,6 @@
 import {
   UNDER_18_AGE,
+  exerciseScreeningTriggers,
   healthFlagByCode,
   sportModuleByKey,
   sportModules,
@@ -28,6 +29,14 @@ export function moduleBand(score: number): SafetyOutcome {
   if (score >= sportScoreBands.redMin) return "RED_SPECIALIST";
   if (score >= sportScoreBands.yellowMin) return "YELLOW_REVIEW";
   return "GREEN";
+}
+
+/**
+ * Exercise Safety (TS-01..TS-03 and the sport modules) is only shown for services that unlock it.
+ * For a Nutrition-only request the section does not exist: its answers are null/empty, never "no".
+ */
+export function exerciseSafetyApplies(serviceInterest: readonly string[] | undefined): boolean {
+  return (serviceInterest ?? []).some((s) => exerciseScreeningTriggers.includes(s));
 }
 
 /**

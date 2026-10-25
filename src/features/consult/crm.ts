@@ -5,7 +5,7 @@ import {
   budgetQuestions,
   outcomeCopy,
 } from "./assessmentConfig";
-import { buildActiveModules, evaluateOutcome, getActiveCategories, getActiveClearance, normalizePhone } from "./outcome";
+import { buildActiveModules, evaluateOutcome, exerciseSafetyApplies, getActiveCategories, getActiveClearance, normalizePhone } from "./outcome";
 import type { ConsultAnswers, ConsultPayload, SubmitResult } from "./types";
 
 export function createSubmissionId(): string {
@@ -41,7 +41,13 @@ export function buildPayload(params: {
   countryCode: string;
   submissionId: string;
 }): ConsultPayload {
-  const { answers, countryCode, submissionId } = params;
+  const { countryCode, submissionId } = params;
+  // Exercise Safety that was never shown (Nutrition-only) is sent as null/empty; stale answers from an earlier
+  // service selection are dropped so scoring, flags and the payload stay consistent with what the user saw.
+  const { ts_01_has_limitation: _staleTs01, ...withoutTs01 } = params.answers;
+  const answers: ConsultAnswers = exerciseSafetyApplies(params.answers.service_interest)
+    ? params.answers
+    : { ...withoutTs01, ts_02_categories: [], ts_03_clearance: "", modules: {} };
   const outcome = evaluateOutcome(answers);
   const isIran = countryCode === "IR";
 
@@ -97,7 +103,7 @@ export function buildPayload(params: {
     specialist_routing_flags: outcome.specialist_routing_flags,
     blocker_details: answers.blocker_details?.trim() || null,
 
-    exercise_limitation: answers.ts_01_has_limitation ?? null,
+    exercise_limitation: answers.ts_01_has_limitation || null,
     exercise_clearance: getActiveClearance(answers) || null,
     sport_categories: getActiveCategories(answers),
     modules: buildActiveModules(answers),
