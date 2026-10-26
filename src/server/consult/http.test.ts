@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createConsultService } from "./service";
-import { dispatchConsultRequest, handleConsultSubmission, matchConsultRoute, readLimitedText } from "./http";
+import { dispatchConsultRequest, handleConsultSubmission, isAllowedHost, matchConsultRoute, readLimitedText } from "./http";
 import { FileConsultStore, StoreError, createConsultStore } from "./store";
 import { MemoryStore, SUBMISSION_ID, newId, payloadFrom } from "./fixtures";
 
@@ -21,6 +21,25 @@ const post = (url: string, payload: unknown, headers: Record<string, string> = {
     headers: { "content-type": "application/json", "idempotency-key": (payload as { submission_id: string }).submission_id, ...headers },
     body: JSON.stringify(payload),
   });
+
+describe("host allow-list", () => {
+  it("keeps the historic staging rule when no allow-list is configured", () => {
+    expect(isAllowedHost("consult-staging.6tofit.com", {})).toBe(true);
+    expect(isAllowedHost("cons.6tofit.com", {})).toBe(false);
+    expect(isAllowedHost("consult.6tofit.com", {})).toBe(false);
+  });
+  it("uses exact hostnames from SIX2FIT_CONSULT_ALLOWED_HOSTS and ignores the staging rule", () => {
+    const env = { SIX2FIT_CONSULT_ALLOWED_HOSTS: " Consult.6tofit.com , other.example " };
+    expect(isAllowedHost("consult.6tofit.com", env)).toBe(true);
+    expect(isAllowedHost("OTHER.example", env)).toBe(true);
+    expect(isAllowedHost("consult-staging.6tofit.com", env)).toBe(false);
+    expect(isAllowedHost("cons.6tofit.com", env)).toBe(false);
+    expect(isAllowedHost("evil-consult.6tofit.com", env)).toBe(false);
+  });
+  it("treats an empty allow-list as unset", () => {
+    expect(isAllowedHost("consult-staging.6tofit.com", { SIX2FIT_CONSULT_ALLOWED_HOSTS: " , " })).toBe(true);
+  });
+});
 
 describe("route matching", () => {
   it.each([
