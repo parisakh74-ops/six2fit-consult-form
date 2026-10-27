@@ -170,6 +170,7 @@ export class CrmConsultStore implements ConsultStore {
       identityMatch: verifiedLead ? "Existing Lead" : undefined,
       contact: association?.contact,
       sandboxIdPrefix: config.moduleIdPrefix,
+      persistScore: config.persistScore,
     });
     if (mapped.degraded.length > 0) this.log("crm.mapping.degraded", { fields: mapped.degraded.join(",") });
     await this.deps.client.verifyEnvironment();

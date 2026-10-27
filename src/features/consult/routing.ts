@@ -99,3 +99,15 @@ export function routeAfterSubmission(args: {
 export function lovableTzCode(timeZone: string | undefined): "1" | "2" {
   return timeZone === "Asia/Tehran" ? "1" : "2";
 }
+
+/**
+ * Safety outcomes that may be shown the sales call-to-action buttons (WhatsApp, plans, guide video).
+ * PROPOSAL pending Product confirmation: the Smart Redirector has no safety concept, but the result copy for YELLOW_REVIEW ("reviewed by the
+ * specialist team first") and RED_SPECIALIST ("the general plan may not be suitable") contradicts self-serve plans and a direct consultation
+ * request, so only GREEN gets them. Add outcomes here to restore full parity with the Redirector.
+ */
+export const CTA_ALLOWED_OUTCOMES: readonly ("GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST")[] = ["GREEN"];
+
+export function ctasAllowedFor(outcome: "GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST"): boolean {
+  return CTA_ALLOWED_OUTCOMES.includes(outcome);
+}

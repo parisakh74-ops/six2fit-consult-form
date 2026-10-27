@@ -50,7 +50,7 @@ import {
 } from "./assessmentConfig";
 import { toAsciiDigits } from "./outcome";
 import { RoutingCtas } from "./RoutingCtas";
-import { lovableTzCode, routeAfterSubmission, type RoutingResult } from "./routing";
+import { ctasAllowedFor, lovableTzCode, routeAfterSubmission, type RoutingResult } from "./routing";
 import { phonePlaceholder } from "./phonePlaceholder";
 import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
 import { buildPayload, createSubmissionId, submitConsultToCRM } from "./crm";
@@ -247,7 +247,7 @@ export function ConsultForm() {
           <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-muted-foreground">
             {copy.text}
           </p>
-          {routing.status === "ROUTED" ? (
+          {routing.status === "ROUTED" && ctasAllowedFor(outcome) ? (
             <div className="mt-6">
               <RoutingCtas scenario={routing.scenario} />
             </div>

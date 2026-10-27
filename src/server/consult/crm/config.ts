@@ -24,6 +24,7 @@ import { StoreError } from "../errors";
  *   SIX2FIT_ZOHO_TIMEOUT_MS            default 10000
  *   SIX2FIT_ZOHO_MAX_ATTEMPTS          default 3
  *   SIX2FIT_CONSULT_CRM_TRIGGER_WORKFLOW  "true" lets the CRM workflow of the module run on create (Lead bridge); default off
+ *   SIX2FIT_CONSULT_CRM_PERSIST_SCORE     "true" also writes the Consult_Score field (only after that field exists in the CRM); default off
  */
 export type CrmConfig = {
   environment: "sandbox" | "production";
@@ -43,6 +44,8 @@ export type CrmConfig = {
   verifyTtlMs: number;
   /** When true the create is sent with `trigger: ["workflow"]` so the CRM-side Lead bridge rule can run. Default false (no workflow fires). */
   triggerWorkflow: boolean;
+  /** When true the server-derived `Consult_Score` is written too. Default false until the CRM field exists. */
+  persistScore: boolean;
 };
 
 /** Id prefix of the Production organisation: never accepted as the expected Sandbox prefix. */
@@ -125,5 +128,6 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
     retryBaseMs: 500,
     verifyTtlMs: 15 * 60 * 1000,
     triggerWorkflow: get("SIX2FIT_CONSULT_CRM_TRIGGER_WORKFLOW") === "true",
+    persistScore: get("SIX2FIT_CONSULT_CRM_PERSIST_SCORE") === "true",
   };
 }

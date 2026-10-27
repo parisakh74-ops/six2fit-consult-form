@@ -32,3 +32,14 @@ describe("scenario CTAs match the Smart Redirector", () => {
     expect(routeAfterSubmission({ tz: "1", budget_range: "lt_5m", readiness_level: "exploring", submission: { ok: false } })).toEqual({ status: "NOT_SUBMITTED" });
   });
 });
+
+import { CTA_ALLOWED_OUTCOMES, ctasAllowedFor } from "./routing";
+
+describe("sales CTAs and safety outcomes (proposal pending Product)", () => {
+  it("only GREEN gets the sales CTAs by default", () => {
+    expect([...CTA_ALLOWED_OUTCOMES]).toEqual(["GREEN"]);
+    expect(ctasAllowedFor("GREEN")).toBe(true);
+    expect(ctasAllowedFor("YELLOW_REVIEW")).toBe(false);
+    expect(ctasAllowedFor("RED_SPECIALIST")).toBe(false);
+  });
+});
