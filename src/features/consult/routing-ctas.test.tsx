@@ -35,11 +35,11 @@ describe("scenario CTAs match the Smart Redirector", () => {
 
 import { CTA_ALLOWED_OUTCOMES, ctasAllowedFor } from "./routing";
 
-describe("sales CTAs and safety outcomes (proposal pending Product)", () => {
-  it("only GREEN gets the sales CTAs by default", () => {
-    expect([...CTA_ALLOWED_OUTCOMES]).toEqual(["GREEN"]);
+describe("sales CTAs and safety outcomes (restriction is an open Product decision)", () => {
+  it("by default every outcome gets the sales CTAs, as in the Smart Redirector", () => {
+    expect([...CTA_ALLOWED_OUTCOMES]).toEqual(["GREEN", "YELLOW_REVIEW", "RED_SPECIALIST"]);
     expect(ctasAllowedFor("GREEN")).toBe(true);
-    expect(ctasAllowedFor("YELLOW_REVIEW")).toBe(false);
-    expect(ctasAllowedFor("RED_SPECIALIST")).toBe(false);
+    expect(ctasAllowedFor("YELLOW_REVIEW")).toBe(true);
+    expect(ctasAllowedFor("RED_SPECIALIST")).toBe(true);
   });
 });

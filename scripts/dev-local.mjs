@@ -9,6 +9,12 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Never a production tool: refuse when the environment says production (it must not be used to start or serve the deployed app).
+if (process.env.NODE_ENV === "production" || process.env.SIX2FIT_ZOHO_ENVIRONMENT === "production") {
+  console.error("dev:local refuses to run in a production environment.");
+  process.exit(1);
+}
+
 const port = process.env.PORT || "8080";
 const storageDir = process.env.SIX2FIT_STAGING_STORAGE_DIR || join(tmpdir(), "six2fit-consult-local");
 mkdirSync(storageDir, { recursive: true });

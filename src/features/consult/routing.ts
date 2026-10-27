@@ -103,11 +103,11 @@ export function routeAfterSubmission(args: {
 
 /**
  * Safety outcomes that may be shown the sales call-to-action buttons (WhatsApp, plans, guide video).
- * PROPOSAL pending Product confirmation: the Smart Redirector has no safety concept, but the result copy for YELLOW_REVIEW ("reviewed by the
- * specialist team first") and RED_SPECIALIST ("the general plan may not be suitable") contradicts self-serve plans and a direct consultation
- * request, so only GREEN gets them. Add outcomes here to restore full parity with the Redirector.
+ * DEFAULT = every outcome, i.e. full parity with the Smart Redirector (which has no safety concept). Restricting the buttons (for example to
+ * GREEN only, because the YELLOW_REVIEW / RED_SPECIALIST result copy says the team reviews first) is an OPEN Product decision and NOT an
+ * approved requirement: change this list only after Product confirms.
  */
-export const CTA_ALLOWED_OUTCOMES: readonly ("GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST")[] = ["GREEN"];
+export const CTA_ALLOWED_OUTCOMES: readonly ("GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST")[] = ["GREEN", "YELLOW_REVIEW", "RED_SPECIALIST"];
 
 export function ctasAllowedFor(outcome: "GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST"): boolean {
   return CTA_ALLOWED_OUTCOMES.includes(outcome);
