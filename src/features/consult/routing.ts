@@ -10,6 +10,8 @@
  * has no counterpart here and contributes nothing.
  */
 
+import type { TzCode } from "./timezone";
+
 export const ROUTING_THRESHOLD = 6;
 /** Current Lovable implementation is `>=`. PM wording was "above 6": unresolved, do not change without Product approval. */
 export const ROUTING_COMPARATOR: "gte" | "gt" = "gte";
@@ -48,12 +50,16 @@ export type ScoreResult =
   | { status: "INCOMPLETE"; missing: string[] }
   | { status: "OK"; score: number; parts: { budget: number; seriousness: number } };
 
+/**
+ * Only the budget question that was SHOWN for `tz` contributes (tz "1" -> Toman, "2" -> USD); a value that belongs to the other currency
+ * (for example a stale answer after the time zone changed) is treated as missing, never as points.
+ */
 export function computeScore(
-  input: { budget_range: string | null | undefined; readiness_level: string | null | undefined },
+  input: { tz: TzCode; budget_range: string | null | undefined; readiness_level: string | null | undefined },
   mapping: ScoreMapping = SCORE_MAPPING,
 ): ScoreResult {
   if (!mapping.verified) return { status: "UNVERIFIED_MAPPING" };
-  const budgetTable = { ...mapping.usdBudget, ...mapping.tomanBudget } as Record<string, Points>;
+  const budgetTable = (input.tz === "1" ? mapping.tomanBudget : mapping.usdBudget) as Record<string, Points>;
   const seriousnessTable = mapping.seriousness as Record<string, Points>;
   const budget = input.budget_range ? budgetTable[input.budget_range] : undefined;
   const seriousness = input.readiness_level ? seriousnessTable[input.readiness_level] : undefined;
@@ -66,7 +72,7 @@ export function computeScore(
 
 export type Scenario = "A" | "B" | "C";
 
-export function scenarioFor(tz: "1" | "2", score: number): Scenario {
+export function scenarioFor(tz: TzCode, score: number): Scenario {
   if (tz === "2") return "B";
   const high = ROUTING_COMPARATOR === "gte" ? score >= ROUTING_THRESHOLD : score > ROUTING_THRESHOLD;
   return high ? "A" : "C";
@@ -83,21 +89,16 @@ export type RoutingResult =
  */
 export function routeAfterSubmission(args: {
   submission: { ok: boolean };
-  tz: "1" | "2";
+  tz: TzCode;
   budget_range: string | null | undefined;
   readiness_level: string | null | undefined;
   mapping?: ScoreMapping;
 }): RoutingResult {
   if (!args.submission.ok) return { status: "NOT_SUBMITTED" };
   if (args.tz === "2") return { status: "ROUTED", scenario: "B", score: null };
-  const scored = computeScore(args, args.mapping);
+  const scored = computeScore({ tz: args.tz, budget_range: args.budget_range, readiness_level: args.readiness_level }, args.mapping);
   if (scored.status !== "OK") return { status: "SCORE_UNAVAILABLE", reason: scored.status };
   return { status: "ROUTED", scenario: scenarioFor(args.tz, scored.score), score: scored.score };
-}
-
-/** Same derivation as the Smart Redirector (Index.tsx): "1" only for the Asia/Tehran time zone, otherwise "2" (also when detection fails). */
-export function lovableTzCode(timeZone: string | undefined): "1" | "2" {
-  return timeZone === "Asia/Tehran" ? "1" : "2";
 }
 
 /**

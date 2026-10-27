@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { evaluateOutcome, getActiveClearance, normalizePhone, scoreModule } from "./outcome";
 import { budgetOptionsFor } from "./schema";
-import { budgetQuestions, currencyCountryFromDialCode } from "./assessmentConfig";
+import { budgetQuestions } from "./assessmentConfig";
+import { budgetGroupForTz } from "./timezone";
 import type { ConsultAnswers } from "./types";
 
 const base: Partial<ConsultAnswers> = {
@@ -149,9 +150,9 @@ describe("health flags", () => {
 });
 
 describe("currency routing", () => {
-  it("+98 WhatsApp number uses Toman, others USD", () => {
-    expect(currencyCountryFromDialCode("+98")).toBe("IR");
-    expect(currencyCountryFromDialCode("+971")).toBe("INTL");
+  it("tz 1 (Asia/Tehran) uses Toman, tz 2 (any other) uses USD", () => {
+    expect(budgetGroupForTz("1")).toBe("IR");
+    expect(budgetGroupForTz("2")).toBe("INTL");
   });
 
   it("shows only the Toman question for IR", () => {

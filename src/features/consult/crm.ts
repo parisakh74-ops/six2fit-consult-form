@@ -6,6 +6,7 @@ import {
   outcomeCopy,
 } from "./assessmentConfig";
 import { buildActiveModules, evaluateOutcome, exerciseSafetyApplies, getActiveCategories, getActiveClearance, normalizePhone } from "./outcome";
+import { budgetGroupForTz, type TzCode } from "./timezone";
 import type { ConsultAnswers, ConsultPayload, SubmitResult } from "./types";
 
 export function createSubmissionId(): string {
@@ -38,10 +39,11 @@ function readAttribution() {
 
 export function buildPayload(params: {
   answers: ConsultAnswers;
-  countryCode: string;
+  /** From timezone.ts (the single tz source). */
+  tz: TzCode;
   submissionId: string;
 }): ConsultPayload {
-  const { countryCode, submissionId } = params;
+  const { tz, submissionId } = params;
   // Exercise Safety that was never shown (Nutrition-only) is sent as null/empty; stale answers from an earlier
   // service selection are dropped so scoring, flags and the payload stay consistent with what the user saw.
   const { ts_01_has_limitation: _staleTs01, ...withoutTs01 } = params.answers;
@@ -49,7 +51,7 @@ export function buildPayload(params: {
     ? params.answers
     : { ...withoutTs01, ts_02_categories: [], ts_03_clearance: "", modules: {} };
   const outcome = evaluateOutcome(answers);
-  const isIran = countryCode === "IR";
+  const budgetGroup = budgetGroupForTz(tz);
 
   const selectedFlags = answers.health_flags ?? [];
   const health_flags = Object.fromEntries(
@@ -117,8 +119,9 @@ export function buildPayload(params: {
     review_required: outcome.review_required,
     crm_status: outcomeCopy[outcome.safety_outcome].crmStatus,
 
-    currency_route_source: "whatsapp_dial_code",
-    budget_currency: isIran ? budgetQuestions.IR.currency : budgetQuestions.INTL.currency,
+    currency_route_source: "browser_timezone",
+    budget_tz: tz,
+    budget_currency: budgetQuestions[budgetGroup].currency,
     budget_range: answers.budget_range ?? null,
     readiness_level: answers.readiness_level ?? null,
 

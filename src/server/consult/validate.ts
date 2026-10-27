@@ -20,6 +20,7 @@ import {
   ts03,
 } from "../../features/consult/assessmentConfig";
 import { evaluateOutcome, exerciseSafetyApplies, getActiveCategories, normalizePhone } from "../../features/consult/outcome";
+import { budgetGroupForTz, type TzCode } from "../../features/consult/timezone";
 import type { ConsultAnswers, ConsultPayload } from "../../features/consult/types";
 import type { ValidationIssue } from "./contract";
 import { SUBMISSION_ID_PATTERN } from "./contract";
@@ -118,7 +119,8 @@ const baseSchema = z
     review_required: z.boolean(),
     crm_status: z.string().max(60),
 
-    currency_route_source: z.literal("whatsapp_dial_code"),
+    currency_route_source: z.literal("browser_timezone"),
+    budget_tz: z.enum(["1", "2"]),
     budget_currency: z.enum(["IRT", "USD"]),
     budget_range: z.enum(budgetValues as [string, ...string[]]),
     readiness_level: enumOf(readinessQuestion.options),
@@ -232,11 +234,12 @@ function semanticIssues(p: z.infer<typeof baseSchema>): ValidationIssue[] {
     const country = countries.find((c) => c.iso === p.whatsapp_country);
     if (country && country.dial !== p.whatsapp_dial_code) add("whatsapp_country", "INCONSISTENT");
   }
-  const isIran = p.whatsapp_dial_code === "+98";
-  if (p.budget_currency !== (isIran ? budgetQuestions.IR.currency : budgetQuestions.INTL.currency)) {
+  // The budget question follows the browser time-zone code (budget_tz), never the WhatsApp country code.
+  const budgetGroup = budgetQuestions[budgetGroupForTz(p.budget_tz as TzCode)];
+  if (p.budget_currency !== budgetGroup.currency) {
     add("budget_currency", "INCONSISTENT");
   }
-  const allowedBudget = values((isIran ? budgetQuestions.IR : budgetQuestions.INTL).options);
+  const allowedBudget = values(budgetGroup.options);
   if (!allowedBudget.includes(p.budget_range)) add("budget_range", "INVALID_VALUE");
 
   // Prefill block must be a faithful copy of the answers

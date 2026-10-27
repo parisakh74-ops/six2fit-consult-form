@@ -533,11 +533,6 @@ export const budgetQuestions = {
   },
 };
 
-/** Currency follows the WhatsApp dial code (+98 → Toman), never the timezone. */
-export function currencyCountryFromDialCode(dialCode: string | undefined): "IR" | "INTL" {
-  return dialCode === "+98" ? "IR" : "INTL";
-}
-
 export const timezoneQuestion = {
   key: "preferred_contact_timezone",
   question: "بهترین منطقهٔ زمانی برای تماس با شما چیست؟",

@@ -76,7 +76,7 @@ const fullModule = (flags: string[] = []): ModuleAnswer => ({
 
 describe("payload contract consult-2.1.0", () => {
   it("carries the new form version and the new top-level keys", () => {
-    const payload = buildPayload({ answers: base(), countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers: base(), tz: "2", submissionId: "cns_test" });
     expect(FORM_VERSION).toBe("consult-2.1.0");
     expect(payload.form_version).toBe("consult-2.1.0");
     expect(payload.whatsapp_dial_code).toBe("+1");
@@ -95,7 +95,7 @@ describe("payload contract consult-2.1.0", () => {
       ts_03_clearance: "no",
       modules: { [key]: fullModule(flags) },
     };
-    const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers, tz: "2", submissionId: "cns_test" });
     expect(payload.sport_categories).toEqual([key]);
     expect(payload.modules).toEqual({
       [key]: {
@@ -124,7 +124,7 @@ describe("payload contract consult-2.1.0", () => {
       ts_03_clearance: "no",
       modules: Object.fromEntries(MODULE_KEYS.map((k) => [k, fullModule([])])),
     };
-    const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers, tz: "2", submissionId: "cns_test" });
     expect(Object.keys(payload.modules).sort()).toEqual([...MODULE_KEYS].sort());
     for (const key of MODULE_KEYS) expect(payload.module_scores[`module_score_${key}`]).toBe(2);
     expect(payload.hard_red_flags).toEqual([]);
@@ -141,7 +141,7 @@ describe("payload contract consult-2.1.0", () => {
         cardiovascular: fullModule(["chest_pain"]), // filled earlier, then deselected
       },
     };
-    const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers, tz: "2", submissionId: "cns_test" });
     expect(Object.keys(payload.modules)).toEqual(["tendon"]);
     expect(payload.hard_red_flags).toEqual([]);
     expect(payload.module_scores["module_score_cardiovascular"]).toBe(0);
@@ -155,7 +155,7 @@ describe("payload contract consult-2.1.0", () => {
       ts_02_categories: ["tendon"],
       modules: { tendon: fullModule(["complete_rupture"]) },
     };
-    const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers, tz: "2", submissionId: "cns_test" });
     expect(payload.modules).toEqual({});
     expect(payload.sport_categories).toEqual([]);
     expect(payload.hard_red_flags).toEqual([]);
@@ -171,7 +171,7 @@ describe("payload contract consult-2.1.0", () => {
       modules: { ligament: fullModule([]) },
     };
     expect(getActiveCategories(answers)).toEqual(["ligament"]);
-    const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers, tz: "2", submissionId: "cns_test" });
     expect(payload.exercise_limitation).toBe("unsure");
     expect(payload.modules["ligament"]).toBeDefined();
   });
@@ -209,7 +209,7 @@ describe("payload contract consult-2.1.0", () => {
       ts_03_clearance: yellowTs03 as string,
       modules: { other: fullModule([]) },
     };
-    const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers, tz: "2", submissionId: "cns_test" });
     const expected = evaluateOutcome(answers);
     expect(payload.nutrition_red_reasons).toEqual(expected.nutrition_red_reasons);
     expect(payload.nutrition_yellow_reasons).toEqual(expected.nutrition_yellow_reasons);
@@ -223,7 +223,7 @@ describe("payload contract consult-2.1.0", () => {
   });
 
   it("returns empty reasons when nothing is flagged", () => {
-    const payload = buildPayload({ answers: base(), countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers: base(), tz: "2", submissionId: "cns_test" });
     expect(payload.nutrition_red_reasons).toEqual([]);
     expect(payload.nutrition_yellow_reasons).toEqual([]);
   });
@@ -236,7 +236,7 @@ describe("payload contract consult-2.1.0", () => {
       ts_03_clearance: "no",
       modules: { surgery: fullModule(["bleeding"]), oncology: fullModule([]) },
     };
-    const payload = buildPayload({ answers, countryCode: "CA", submissionId: "cns_test" });
+    const payload = buildPayload({ answers, tz: "2", submissionId: "cns_test" });
     expect(JSON.parse(JSON.stringify(payload))).toEqual(payload);
     // keep the previously submitted keys
     for (const key of [
@@ -266,7 +266,7 @@ describe("F1: payload never carries a stale TS-03", () => {
   it("exercise_clearance is null when TS-01 is no, even if the form state still holds a value", () => {
     const payload = buildPayload({
       answers: { ...base(), ts_01_has_limitation: "no", ts_02_categories: [], ts_03_clearance: "yes", modules: {} },
-      countryCode: "CA",
+      tz: "2",
       submissionId: "cns_test",
     });
     expect(payload.exercise_clearance).toBeNull();

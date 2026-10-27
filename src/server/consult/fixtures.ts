@@ -51,8 +51,9 @@ export const moduleAnswer = (flags: string[] = []): ModuleAnswer => ({
 
 export const SUBMISSION_ID = "cns_00000000-0000-4000-8000-000000000001";
 
-export const payloadFrom = (over: Partial<ConsultAnswers> = {}, id = SUBMISSION_ID): ConsultPayload =>
-  buildPayload({ answers: answers(over), countryCode: over.whatsapp_dial_code === "+98" ? "IR" : "CA", submissionId: id });
+/** `tz` is the browser time-zone code ("1" Asia/Tehran -> Toman budget, "2" otherwise -> USD budget); it does not depend on the WhatsApp country. */
+export const payloadFrom = (over: Partial<ConsultAnswers> = {}, id = SUBMISSION_ID, tz: "1" | "2" = "2"): ConsultPayload =>
+  buildPayload({ answers: answers(over), tz, submissionId: id });
 
 /** Deep-cloned payload with a mutation applied (for negative tests). */
 export function tamper(payload: ConsultPayload, mutate: (p: any) => void): Record<string, unknown> {

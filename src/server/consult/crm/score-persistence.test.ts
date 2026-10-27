@@ -27,6 +27,14 @@ describe("Consult_Score persistence (gated, server-derived)", () => {
     expect(record["Consult_Score"]).toBe(2);
   });
 
+  it("follows the tz that decided the budget question: a Toman value under tz 2 is not counted", () => {
+    const tehran = payloadFrom({ budget_range: "gt_20m", readiness_level: "committed" } as never, undefined, "1") as unknown as Record<string, unknown>;
+    expect(buildCrmRecord(tehran, { ...OPTS, persistScore: true }).record["Consult_Score"]).toBe(8);
+    const { record, degraded } = buildCrmRecord({ ...tehran, budget_tz: "2" }, { ...OPTS, persistScore: true });
+    expect("Consult_Score" in record).toBe(false);
+    expect(degraded).toContain("Consult_Score");
+  });
+
   it("documents the proposed field", () => {
     expect(PROPOSED_SCORE_FIELD).toEqual({ apiName: "Consult_Score", type: "integer", maxDigits: 1 });
   });

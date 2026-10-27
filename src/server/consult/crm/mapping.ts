@@ -294,7 +294,7 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
   option(out, "Budget_Range", payload["budget_range"]);
   option(out, "Readiness_Level", payload["readiness_level"]);
   if (opts.persistScore === true) {
-    const scored = computeScore({ budget_range: asString(payload["budget_range"], "Budget_Range"), readiness_level: asString(payload["readiness_level"], "Readiness_Level") });
+    const scored = computeScore({ tz: payload["budget_tz"] === "1" ? "1" : "2", budget_range: asString(payload["budget_range"], "Budget_Range"), readiness_level: asString(payload["readiness_level"], "Readiness_Level") });
     if (scored.status === "OK") out[PROPOSED_SCORE_FIELD.apiName] = scored.score;
     else degraded.push(PROPOSED_SCORE_FIELD.apiName);
   }
