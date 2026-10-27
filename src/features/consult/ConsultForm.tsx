@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
@@ -20,7 +20,6 @@ import {
 import {
   adherenceBarrierOptions,
   blockerDetails,
-  currencyCountryFromDialCode,
   healthChecklist,
   allHealthFlags,
   countryByIso,
@@ -49,6 +48,9 @@ import {
   type SafetyOutcome,
 } from "./assessmentConfig";
 import { toAsciiDigits } from "./outcome";
+import { RoutingCtas } from "./RoutingCtas";
+import { ctasAllowedFor, routeAfterSubmission, type RoutingResult } from "./routing";
+import { budgetGroupForTz, detectTzCode, isBudgetValueForTz, type TzCode } from "./timezone";
 import { phonePlaceholder } from "./phonePlaceholder";
 import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
 import { buildPayload, createSubmissionId, submitConsultToCRM } from "./crm";
@@ -96,6 +98,7 @@ export function ConsultForm() {
   const [step, setStep] = useState(0);
   const [status, setStatus] = useState<Status>("idle");
   const [outcome, setOutcome] = useState<SafetyOutcome>("GREEN");
+  const [routing, setRouting] = useState<RoutingResult>({ status: "NOT_SUBMITTED" });
   const pendingRef = useRef(false);
   const [noNutritionConditions, setNoNutritionConditions] = useState(false);
   const [nutritionSelectionError, setNutritionSelectionError] = useState(false);
@@ -121,6 +124,26 @@ export function ConsultForm() {
 
   const values = watch();
 
+  // The single tz source (browser time zone): it decides the budget currency AND the A/B/C routing. Start with "2" so the server render and the
+  // first client render agree; the real value is read on mount and re-read whenever the page regains focus (a changed time zone).
+  const [tz, setTz] = useState<TzCode>("2");
+  const applyTz = (next: TzCode) => {
+    setTz(next);
+    // A budget answer that belongs to the other currency must not survive a time-zone change.
+    if (!isBudgetValueForTz(next, getValues().budget_range)) setValue("budget_range" as never, "" as never);
+  };
+  useEffect(() => {
+    applyTz(detectTzCode());
+    const recheck = () => applyTz(detectTzCode());
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const set = (name: string, value: unknown) =>
     setValue(name as never, value as never, { shouldValidate: true });
 
@@ -135,8 +158,8 @@ export function ConsultForm() {
     return typeof message === "string" ? message : undefined;
   };
 
-  // Currency follows the WhatsApp dial code; the timezone is never used for it.
-  const countryCode = currencyCountryFromDialCode(values.whatsapp_dial_code);
+  // The budget currency follows the browser time-zone code (tz), never the WhatsApp country code.
+  const budgetGroup = budgetGroupForTz(tz);
   const selectedServices = values.service_interest ?? [];
   // Before the user picks services, assume the exercise step applies so the
   // progress indicator does not jump backwards later.
@@ -180,13 +203,20 @@ export function ConsultForm() {
     stepRef.current = step;
     const valid = await trigger();
     if (!valid) return;
+    // Re-read the time zone right before sending: if it changed since the budget question was answered, drop that answer and ask again.
+    const freshTz = detectTzCode();
+    if (freshTz !== tz || !isBudgetValueForTz(freshTz, getValues().budget_range)) {
+      applyTz(freshTz);
+      goTo(5);
+      return;
+    }
     pendingRef.current = true;
     setStatus("submitting");
     try {
       const payload = buildPayload({
         // Step resolvers only parse their own slice, so read the full form state.
         answers: getValues(),
-        countryCode: currencyCountryFromDialCode(getValues().whatsapp_dial_code),
+        tz,
         submissionId: submissionIdRef.current ?? (submissionIdRef.current = createSubmissionId()),
       });
       const result = await submitConsultToCRM(payload);
@@ -195,6 +225,15 @@ export function ConsultForm() {
         return;
       }
       setOutcome(payload.safety_outcome);
+      // Routing is decided only here, after the API confirmed the submission, from the SAME tz that decided the budget question (payload.budget_tz).
+      setRouting(
+        routeAfterSubmission({
+          submission: result,
+          tz: payload.budget_tz,
+          budget_range: payload.budget_range,
+          readiness_level: payload.readiness_level,
+        }),
+      );
       setStatus("success");
       submissionIdRef.current = null;
       if (typeof window !== "undefined") window.scrollTo({ top: 0 });
@@ -228,18 +267,23 @@ export function ConsultForm() {
           <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-muted-foreground">
             {copy.text}
           </p>
+          {routing.status === "ROUTED" && ctasAllowedFor(outcome) ? (
+            <div className="mt-6">
+              <RoutingCtas scenario={routing.scenario} />
+            </div>
+          ) : null}
         </Card>
         {import.meta.env.DEV ? (
           <DevPayloadPreview
             values={getValues()}
-            countryCode={currencyCountryFromDialCode(getValues().whatsapp_dial_code)}
+            tz={tz}
           />
         ) : null}
       </PageShell>
     );
   }
 
-  const budget = budgetOptionsFor(countryCode);
+  const budget = budgetOptionsFor(budgetGroup);
   const selectedFlags = values.health_flags ?? [];
   const needsBlockerDetails = selectedFlags.length > 0;
   const activeCategories =
@@ -655,7 +699,7 @@ export function ConsultForm() {
       </Card>
 
       {import.meta.env.DEV && step > 0 ? (
-        <DevPayloadPreview values={values} countryCode={countryCode} />
+        <DevPayloadPreview values={values} tz={tz} />
       ) : null}
     </PageShell>
   );
@@ -954,17 +998,17 @@ function NumberField({
 
 function DevPayloadPreview({
   values,
-  countryCode,
+  tz,
 }: {
   values: FormValues;
-  countryCode: string;
+  tz: TzCode;
 }) {
   let json = "";
   try {
     json = JSON.stringify(
       buildPayload({
         answers: values,
-        countryCode,
+        tz,
         submissionId: "cns_preview",
       }),
       null,

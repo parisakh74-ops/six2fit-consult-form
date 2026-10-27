@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "dev:staging": "vite dev --mode staging",
+    "dev:local": "node scripts/dev-local.mjs",
     "build": "vite build",
     "build:staging": "vite build --mode staging",
     "build:shetaban": "node scripts/build-shetaban.mjs",

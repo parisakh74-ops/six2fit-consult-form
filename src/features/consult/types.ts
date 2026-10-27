@@ -101,7 +101,9 @@ export type ConsultPayload = {
   review_required: boolean;
   crm_status: string;
 
-  currency_route_source: "whatsapp_dial_code";
+  currency_route_source: "browser_timezone";
+  /** The tz code that decided the budget question and the routing: "1" = Asia/Tehran (Toman), "2" = any other (USD). */
+  budget_tz: "1" | "2";
   budget_currency: string;
   budget_range: string | null;
   readiness_level: string | null;

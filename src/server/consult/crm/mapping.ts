@@ -1,6 +1,7 @@
 import { fingerprint } from "../canonical";
 import { StoreError } from "../errors";
 import type { StoredConsult } from "../store";
+import { computeScore } from "../../../features/consult/routing";
 
 /**
  * Mapping between the validated consult-2.1.0 payload and the Sandbox module
@@ -109,7 +110,19 @@ export type MappingOptions = {
   lead?: string | undefined;
   contact?: string | undefined;
   sandboxIdPrefix: string;
+  /** Initial status; default `Received` (the CRM-side resolver acts on `Received` only). */
+  status?: "Received" | "Needs Review" | undefined;
+  /** Set only together with a verified Lead reference. */
+  identityMatch?: "Existing Lead" | undefined;
+  /**
+   * Also write `Consult_Score` (derived HERE from the validated budget_range + readiness_level, never taken from the client).
+   * Default false: the CRM field does not exist yet (proposed, Class 3); writing an unknown field would fail the create.
+   */
+  persistScore?: boolean | undefined;
 };
+
+/** Proposed CRM field for the consultation score (NOT created anywhere). Integer, range 2-8. */
+export const PROPOSED_SCORE_FIELD = { apiName: "Consult_Score", type: "integer", maxDigits: 1 } as const;
 
 export const toZohoDateTime = (iso: string | Date): string => {
   const d = iso instanceof Date ? iso : new Date(iso);
@@ -213,7 +226,7 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
   if (submissionId.length > CRM_NAME_MAX) rejected("FIELD_TOO_LONG", "Name");
   out["Name"] = submissionId;
   out["Submission_ID"] = submissionId;
-  out["Status"] = "Received";
+  out["Status"] = opts.status ?? "Received";
 
   // Complete original payload: compact JSON, size checked on the real serialisation (UTF-16 length is a
   // conservative upper bound of Zoho's character count; bytes are irrelevant, verified in the Sandbox).
@@ -280,6 +293,11 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
   option(out, "Budget_Currency", payload["budget_currency"]);
   option(out, "Budget_Range", payload["budget_range"]);
   option(out, "Readiness_Level", payload["readiness_level"]);
+  if (opts.persistScore === true) {
+    const scored = computeScore({ tz: payload["budget_tz"] === "1" ? "1" : "2", budget_range: asString(payload["budget_range"], "Budget_Range"), readiness_level: asString(payload["readiness_level"], "Readiness_Level") });
+    if (scored.status === "OK") out[PROPOSED_SCORE_FIELD.apiName] = scored.score;
+    else degraded.push(PROPOSED_SCORE_FIELD.apiName);
+  }
   text(out, degraded, "Timezone", payload["preferred_contact_timezone"], CRM_TEXT_MAX);
 
   out["Consent_Version"] = asString(payload["consent_version"], "Consent_Version") ?? rejected("MISSING", "Consent_Version");
@@ -308,6 +326,7 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
     if (!/^\d{10,25}$/.test(value) || !value.startsWith(opts.sandboxIdPrefix)) rejected("INVALID_LOOKUP_ID", field);
     out[field] = { id: value };
   }
+  if (opts.identityMatch !== undefined && opts.lead !== undefined) out["Identity_Match"] = opts.identityMatch;
 
   return { record: out, degraded, rawChars };
 }

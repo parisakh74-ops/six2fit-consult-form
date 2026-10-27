@@ -12,7 +12,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { parseEnv } = require("node:util");
 
-const ALLOWED = ["SIX2FIT_ZOHO_CLIENT_ID", "SIX2FIT_ZOHO_CLIENT_SECRET", "SIX2FIT_ZOHO_REFRESH_TOKEN"];
+const ALLOWED = ["SIX2FIT_ZOHO_CLIENT_ID", "SIX2FIT_ZOHO_CLIENT_SECRET", "SIX2FIT_ZOHO_REFRESH_TOKEN", "SIX2FIT_CONSULT_LEAD_REF_SECRET"];
 
 function loadPrivateEnv(options = {}) {
   const env = options.env || process.env;

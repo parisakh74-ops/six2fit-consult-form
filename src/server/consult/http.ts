@@ -56,15 +56,32 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   const store = createConsultStore(env, config.storageDir);
   const parsedLimit = Number(env["SIX2FIT_CONSULT_MAX_BODY_BYTES"]);
   const maxBodyBytes = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : DEFAULT_MAX_BODY_BYTES;
+  const leadRefSecret = (env["SIX2FIT_CONSULT_LEAD_REF_SECRET"] ?? "").trim();
+  if (leadRefSecret !== "" && leadRefSecret.length < 32) throw new StoreError("NOT_CONFIGURED", "lead reference secret too short", "CONFIG");
   const service = createConsultService({
     store,
     maxBodyBytes,
+    ...(leadRefSecret ? { leadRefSecret } : {}),
     log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
   });
   return { service, maxBodyBytes };
 }
 
 type Deps = { runtime?: () => Runtime };
+
+/**
+ * Hosts allowed to reach the consult API. `SIX2FIT_CONSULT_ALLOWED_HOSTS` (comma separated exact hostnames, server-side only)
+ * names the production host(s); when it is unset the historic staging rule applies unchanged (hostname contains "consult-staging").
+ */
+export function isAllowedHost(hostname: string, env: Record<string, string | undefined> = process.env): boolean {
+  const host = hostname.toLowerCase();
+  const allowed = (env["SIX2FIT_CONSULT_ALLOWED_HOSTS"] ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => h !== "");
+  if (allowed.length > 0) return allowed.includes(host);
+  return host.includes("consult-staging");
+}
 
 // One handler execution per Request object, even if two entry points were ever chained.
 const HANDLED_KEY = Symbol.for("six2fit.consult.handled");
@@ -74,8 +91,8 @@ const handled: HandledMap = ((globalThis as Record<symbol, unknown>)[HANDLED_KEY
 async function execute(request: Request, match: "submit" | "method_not_allowed", deps: Deps): Promise<ConsultResult> {
   if (match === "method_not_allowed") return errorResult("METHOD_NOT_ALLOWED", { headers: { allow: "POST" } });
 
-  // Explicit staging-only safety guard. This is NOT authentication.
-  if (!new URL(request.url).hostname.toLowerCase().includes("consult-staging")) return errorResult("STAGING_ONLY");
+  // Explicit host allow-list guard. This is NOT authentication.
+  if (!isAllowedHost(new URL(request.url).hostname)) return errorResult("STAGING_ONLY");
 
   let runtime: Runtime;
   try {
@@ -89,6 +106,7 @@ async function execute(request: Request, match: "submit" | "method_not_allowed",
   return runtime.service.submit({
     contentType: request.headers.get("content-type"),
     idempotencyKey: request.headers.get("idempotency-key"),
+    leadRef: request.headers.get("x-s2f-lead-ref"),
     body,
   });
 }

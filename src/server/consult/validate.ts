@@ -19,7 +19,8 @@ import {
   ts01,
   ts03,
 } from "../../features/consult/assessmentConfig";
-import { evaluateOutcome, getActiveCategories, normalizePhone } from "../../features/consult/outcome";
+import { evaluateOutcome, exerciseSafetyApplies, getActiveCategories, normalizePhone } from "../../features/consult/outcome";
+import { budgetGroupForTz, type TzCode } from "../../features/consult/timezone";
 import type { ConsultAnswers, ConsultPayload } from "../../features/consult/types";
 import type { ValidationIssue } from "./contract";
 import { SUBMISSION_ID_PATTERN } from "./contract";
@@ -103,7 +104,8 @@ const baseSchema = z
     specialist_routing_flags: uniqueArray(z.string().max(60)),
     blocker_details: nullableText(500),
 
-    exercise_limitation: enumOf(ts01.options),
+    // null only when Exercise Safety does not apply (Nutrition-only); enforced in semanticIssues.
+    exercise_limitation: z.union([enumOf(ts01.options), z.null()]),
     exercise_clearance: z.union([enumOf(ts03.options), z.literal(""), z.null()]),
     sport_categories: uniqueArray(z.enum(MODULE_KEYS as [string, ...string[]])),
     modules: z.record(z.unknown()),
@@ -117,7 +119,8 @@ const baseSchema = z
     review_required: z.boolean(),
     crm_status: z.string().max(60),
 
-    currency_route_source: z.literal("whatsapp_dial_code"),
+    currency_route_source: z.literal("browser_timezone"),
+    budget_tz: z.enum(["1", "2"]),
     budget_currency: z.enum(["IRT", "USD"]),
     budget_range: z.enum(budgetValues as [string, ...string[]]),
     readiness_level: enumOf(readinessQuestion.options),
@@ -208,7 +211,15 @@ function semanticIssues(p: z.infer<typeof baseSchema>): ValidationIssue[] {
     add("adherence_barrier_other", "UNEXPECTED_FIELD");
   }
 
-  if (p.exercise_limitation === "no") {
+  if (!exerciseSafetyApplies(p.service_interest)) {
+    // Nutrition-only: the section was never shown, so no exercise answer of any kind may be present.
+    if (p.exercise_limitation !== null) add("exercise_limitation", "INCONSISTENT");
+    if (p.exercise_clearance) add("exercise_clearance", "INCONSISTENT");
+    if (p.sport_categories.length > 0) add("sport_categories", "INCONSISTENT");
+    if (Object.keys(p.modules).length > 0) add("modules", "INCONSISTENT");
+  } else if (p.exercise_limitation === null) {
+    add("exercise_limitation", "REQUIRED"); // an unanswered question is never treated as "no"
+  } else if (p.exercise_limitation === "no") {
     if (p.sport_categories.length > 0) add("sport_categories", "INCONSISTENT");
     if (Object.keys(p.modules).length > 0) add("modules", "INCONSISTENT");
     if (p.exercise_clearance) add("exercise_clearance", "INCONSISTENT");
@@ -223,11 +234,12 @@ function semanticIssues(p: z.infer<typeof baseSchema>): ValidationIssue[] {
     const country = countries.find((c) => c.iso === p.whatsapp_country);
     if (country && country.dial !== p.whatsapp_dial_code) add("whatsapp_country", "INCONSISTENT");
   }
-  const isIran = p.whatsapp_dial_code === "+98";
-  if (p.budget_currency !== (isIran ? budgetQuestions.IR.currency : budgetQuestions.INTL.currency)) {
+  // The budget question follows the browser time-zone code (budget_tz), never the WhatsApp country code.
+  const budgetGroup = budgetQuestions[budgetGroupForTz(p.budget_tz as TzCode)];
+  if (p.budget_currency !== budgetGroup.currency) {
     add("budget_currency", "INCONSISTENT");
   }
-  const allowedBudget = values((isIran ? budgetQuestions.IR : budgetQuestions.INTL).options);
+  const allowedBudget = values(budgetGroup.options);
   if (!allowedBudget.includes(p.budget_range)) add("budget_range", "INVALID_VALUE");
 
   // Prefill block must be a faithful copy of the answers
@@ -252,7 +264,7 @@ function semanticIssues(p: z.infer<typeof baseSchema>): ValidationIssue[] {
 
 function validateModules(p: z.infer<typeof baseSchema>): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  if (p.exercise_limitation === "no") return issues;
+  if (p.exercise_limitation === null || p.exercise_limitation === "no") return issues;
   const active = getActiveCategories({
     ts_01_has_limitation: p.exercise_limitation,
     ts_02_categories: p.sport_categories,
@@ -282,7 +294,7 @@ function answersFromPayload(p: z.infer<typeof baseSchema>): Partial<ConsultAnswe
   return {
     age: p.age,
     health_flags: p.health_flags_selected,
-    ts_01_has_limitation: p.exercise_limitation,
+    ...(p.exercise_limitation === null ? {} : { ts_01_has_limitation: p.exercise_limitation }),
     ts_02_categories: p.sport_categories,
     ts_03_clearance: p.exercise_clearance ?? "",
     modules: p.modules as ConsultAnswers["modules"],

@@ -68,7 +68,7 @@ describe("accepts what the real frontend builder produces (consult-2.1.0)", () =
     expect(ok(p).ok).toBe(true);
   });
 
-  it("Iran dial code with IRT budget, other barrier, timezone, attribution", () => {
+  it("Tehran time zone (tz 1) with IRT budget, other barrier, timezone, attribution", () => {
     const p = payloadFrom({
       whatsapp_country: "IR",
       whatsapp_dial_code: "+98",
@@ -77,7 +77,7 @@ describe("accepts what the real frontend builder produces (consult-2.1.0)", () =
       adherence_barrier: ["motivation", "other"],
       adherence_barrier_other: "synthetic",
       preferred_contact_timezone: "Asia/Tehran (UTC+3:30)",
-    });
+    }, undefined, "1");
     const withAttribution = { ...p, utm_source: "ig", utm_campaign: "c1", landing_page: "https://consult-staging.example.test/" };
     expect(ok(withAttribution).ok).toBe(true);
   });

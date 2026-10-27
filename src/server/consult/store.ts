@@ -19,6 +19,11 @@ export type StoredConsult = {
   record_ref?: string;
   crm_record_id?: string;
   created_at: string;
+  /**
+   * Outcome of verifying the signed Lead reference of the link (never part of the payload or its fingerprint). `lead_id` only when
+   * `ref_state` is `valid`. `none` = no reference presented (or the feature is off).
+   */
+  identity?: { ref_state: "none" | "valid" | "invalid" | "expired"; lead_id?: string };
 };
 
 export type CreateResult =

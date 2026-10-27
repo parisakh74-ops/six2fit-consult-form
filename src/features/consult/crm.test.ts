@@ -29,7 +29,7 @@ describe("consult CRM payload", () => {
 
     const payload = buildPayload({
       answers,
-      countryCode: "CA",
+      tz: "2",
       submissionId: "cns_synthetic_submission_001",
     });
 

@@ -179,8 +179,8 @@ export const consentSchema = z.object({
 
 export const emptySchema = z.object({});
 
-export function budgetOptionsFor(countryCode: string) {
-  return countryCode === "IR" ? budgetQuestions.IR : budgetQuestions.INTL;
+export function budgetOptionsFor(group: string) {
+  return group === "IR" ? budgetQuestions.IR : budgetQuestions.INTL;
 }
 
 export function schemaForStep(step: number): z.ZodTypeAny {
