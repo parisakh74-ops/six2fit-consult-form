@@ -49,7 +49,8 @@ import {
   type SafetyOutcome,
 } from "./assessmentConfig";
 import { toAsciiDigits } from "./outcome";
-import { PLANS_URL, WHATSAPP_URL, lovableTzCode, routeAfterSubmission, type RoutingResult } from "./routing";
+import { RoutingCtas } from "./RoutingCtas";
+import { lovableTzCode, routeAfterSubmission, type RoutingResult } from "./routing";
 import { phonePlaceholder } from "./phonePlaceholder";
 import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
 import { buildPayload, createSubmissionId, submitConsultToCRM } from "./crm";
@@ -247,26 +248,8 @@ export function ConsultForm() {
             {copy.text}
           </p>
           {routing.status === "ROUTED" ? (
-            <div className="mt-6" data-testid="routing-cta" data-scenario={routing.scenario}>
-              {routing.scenario === "C" ? (
-                <a
-                  href={PLANS_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-brand px-5 py-3 text-[15px] font-semibold text-white"
-                >
-                  مشاهده پلن‌ها
-                </a>
-              ) : (
-                <a
-                  href={WHATSAPP_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-brand px-5 py-3 text-[15px] font-semibold text-white"
-                >
-                  {routing.scenario === "A" ? "درخواست مشاوره مستقیم" : "ارسال پیام در واتساپ"}
-                </a>
-              )}
+            <div className="mt-6">
+              <RoutingCtas scenario={routing.scenario} />
             </div>
           ) : null}
         </Card>

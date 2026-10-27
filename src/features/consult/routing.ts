@@ -35,8 +35,13 @@ export const SCORE_MAPPING: ScoreMapping = {
 /** WhatsApp destination copied from the Smart Redirector source (ThankYou.tsx, Lovable project 7d10219c). Text decodes to: سلام، من فرم مشاوره را پر کردم. */
 export const WHATSAPP_URL =
   "https://wa.me/14376085008?text=%D8%B3%D9%84%D8%A7%D9%85%D8%8C%20%D9%85%D9%86%20%D9%81%D8%B1%D9%85%20%D9%85%D8%B4%D8%A7%D9%88%D8%B1%D9%87%20%D8%B1%D8%A7%20%D9%BE%D8%B1%20%DA%A9%D8%B1%D8%AF%D9%85.";
-/** Scenario C "programs" destination from the same source (LANDING_URL). */
-export const PLANS_URL = "https://price.six2fit.com";
+/**
+ * Scenario C destinations, copied from the Smart Redirector source (ThankYou.tsx, Lovable project 7d10219c, scenario C block):
+ * "مشاهده ویدیوی راهنما" (cta guide_video) -> /pln/ and "مشاهده پلن‌ها" (cta plans) -> /price/ on six2fit.com. Both open in a new tab.
+ * (The LANDING_URL constant of that file, price.six2fit.com, is not used by scenario C.)
+ */
+export const GUIDE_VIDEO_URL = "https://six2fit.com/pln/";
+export const PLANS_URL = "https://six2fit.com/price/";
 
 export type ScoreResult =
   | { status: "UNVERIFIED_MAPPING" }
