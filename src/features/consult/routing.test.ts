@@ -7,29 +7,36 @@ import {
   scenarioFor,
   type ScoreMapping,
 } from "./routing";
-import { currencyCountryFromDialCode } from "./assessmentConfig";
+import { budgetQuestions, currencyCountryFromDialCode, readinessQuestion } from "./assessmentConfig";
+import { submitConsultToCRM } from "./crm";
 
-/** SYNTHETIC numbers used only to exercise the arithmetic. They are NOT the Zoho Forms values. */
-const SYNTHETIC: ScoreMapping = {
-  verified: true,
-  usdBudget: { lt_70: 0, "70_170": 1, "170_270": 2, gt_270: 3 },
-  tomanBudget: { lt_5m: 0, "5_10m": 1, "10_20m": 2, gt_20m: 3 },
-  seriousness: { exploring: 0, free_only: 1, ready_if_results: 2, committed: 4 },
-};
+const USD = ["lt_70", "70_170", "170_270", "gt_270"] as const;
+const TOMAN = ["lt_5m", "5_10m", "10_20m", "gt_20m"] as const;
+const SERIOUS = ["exploring", "free_only", "ready_if_results", "committed"] as const;
 
 describe("score mapping safety", () => {
-  it("the shipped mapping is unverified and has no numbers", () => {
-    expect(SCORE_MAPPING.verified).toBe(false);
-    const all = [...Object.values(SCORE_MAPPING.usdBudget), ...Object.values(SCORE_MAPPING.tomanBudget), ...Object.values(SCORE_MAPPING.seriousness)];
-    expect(all.every((v) => v === null)).toBe(true);
+  it("holds exactly the 12 confirmed Zoho Forms values", () => {
+    expect(SCORE_MAPPING.usdBudget).toEqual({ lt_70: 1, "70_170": 2, "170_270": 3, gt_270: 4 });
+    expect(SCORE_MAPPING.tomanBudget).toEqual({ lt_5m: 1, "5_10m": 2, "10_20m": 3, gt_20m: 4 });
+    expect(SCORE_MAPPING.seriousness).toEqual({ exploring: 1, free_only: 2, ready_if_results: 3, committed: 4 });
   });
 
-  it("never produces a score while the mapping is unverified", () => {
-    expect(computeScore({ budget_range: "70_170", readiness_level: "committed" })).toEqual({ status: "UNVERIFIED_MAPPING" });
+  it("the form's readiness options no longer carry the unsupported 0,0,2,3 weights", () => {
+    expect(readinessQuestion.options.every((o) => o.points === undefined)).toBe(true);
+  });
+
+  it("an unverified mapping never yields a score", () => {
+    expect(computeScore({ budget_range: "70_170", readiness_level: "committed" }, { ...SCORE_MAPPING, verified: false })).toEqual({ status: "UNVERIFIED_MAPPING" });
+  });
+
+  it("budget values offered by the form equal the mapped keys", () => {
+    expect(budgetQuestions.INTL.options.map((o) => o.value)).toEqual([...USD]);
+    expect(budgetQuestions.IR.options.map((o) => o.value)).toEqual([...TOMAN]);
+    expect(readinessQuestion.options.map((o) => o.value)).toEqual([...SERIOUS]);
   });
 
   it("reports missing inputs instead of guessing", () => {
-    expect(computeScore({ budget_range: "nope", readiness_level: "committed" }, SYNTHETIC)).toEqual({ status: "INCOMPLETE", missing: ["budget_range"] });
+    expect(computeScore({ budget_range: "nope", readiness_level: "committed" }, SCORE_MAPPING)).toEqual({ status: "INCOMPLETE", missing: ["budget_range"] });
   });
 });
 
@@ -46,16 +53,37 @@ describe("boundary scores 5, 6 and 7 (current Lovable rule: score >= 6)", () => 
     for (const s of [0, 5, 6, 7, 20]) expect(scenarioFor("2", s)).toBe("B");
   });
 
-  it("sums budget and seriousness through the mapping (5, 6, 7)", () => {
-    const at = (budget: string, readiness: string) => computeScore({ budget_range: budget, readiness_level: readiness }, SYNTHETIC);
-    expect(at("gt_270", "ready_if_results")).toMatchObject({ status: "OK", score: 5 });
-    expect(at("170_270", "committed")).toMatchObject({ status: "OK", score: 6 });
-    expect(at("gt_270", "committed")).toMatchObject({ status: "OK", score: 7 });
+  it.each([
+    ["USD", USD],
+    ["Toman", TOMAN],
+  ] as const)("all 16 %s budget x seriousness combinations sum correctly and stay within 2-8", (_name, budgets) => {
+    budgets.forEach((budget, bi) => {
+      SERIOUS.forEach((ser, si) => {
+        const r = computeScore({ budget_range: budget, readiness_level: ser });
+        expect(r).toMatchObject({ status: "OK", score: bi + 1 + (si + 1) });
+        if (r.status === "OK") {
+          expect(r.score).toBeGreaterThanOrEqual(2);
+          expect(r.score).toBeLessThanOrEqual(8);
+        }
+      });
+    });
+  });
+
+  it("covers every score from 2 to 8 and routes each by the >= 6 rule", () => {
+    const seen = new Map<number, string>();
+    for (const b of USD) for (const s of SERIOUS) {
+      const r = computeScore({ budget_range: b, readiness_level: s });
+      if (r.status === "OK") seen.set(r.score, scenarioFor("1", r.score));
+    }
+    expect([...seen.keys()].sort((x, y) => x - y)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    expect(seen.get(5)).toBe("C");
+    expect(seen.get(6)).toBe("A");
+    expect(seen.get(7)).toBe("A");
   });
 });
 
 describe("routing happens only after a successful submission", () => {
-  const base = { tz: "1" as const, budget_range: "gt_270", readiness_level: "committed", mapping: SYNTHETIC };
+  const base = { tz: "1" as const, budget_range: "gt_270", readiness_level: "committed" };
 
   it("does not route a failed submission", () => {
     expect(routeAfterSubmission({ ...base, submission: { ok: false } })).toEqual({ status: "NOT_SUBMITTED" });
@@ -63,16 +91,35 @@ describe("routing happens only after a successful submission", () => {
 
   it("routes 5 / 6 / 7 end to end after success", () => {
     const run = (budget_range: string, readiness_level: string) => routeAfterSubmission({ ...base, budget_range, readiness_level, submission: { ok: true } });
-    expect(run("gt_270", "ready_if_results")).toEqual({ status: "ROUTED", scenario: "C", score: 5 });
-    expect(run("170_270", "committed")).toEqual({ status: "ROUTED", scenario: "A", score: 6 });
-    expect(run("gt_270", "committed")).toEqual({ status: "ROUTED", scenario: "A", score: 7 });
+    expect(run("170_270", "free_only")).toEqual({ status: "ROUTED", scenario: "C", score: 5 });
+    expect(run("170_270", "ready_if_results")).toEqual({ status: "ROUTED", scenario: "A", score: 6 });
+    expect(run("gt_270", "ready_if_results")).toEqual({ status: "ROUTED", scenario: "A", score: 7 });
   });
 
-  it("with the shipped (unverified) mapping an Iranian-tz user gets no routing result", () => {
-    expect(routeAfterSubmission({ tz: "1", budget_range: "gt_270", readiness_level: "committed", submission: { ok: true } })).toEqual({
-      status: "SCORE_UNAVAILABLE",
-      reason: "UNVERIFIED_MAPPING",
-    });
+  it("tz 2 routes to B without needing a score", () => {
+    expect(routeAfterSubmission({ tz: "2", budget_range: null, readiness_level: null, submission: { ok: true } })).toEqual({ status: "ROUTED", scenario: "B", score: null });
+  });
+
+  it("an unverified mapping yields no routing for tz 1", () => {
+    expect(routeAfterSubmission({ ...base, submission: { ok: true }, mapping: { ...SCORE_MAPPING, verified: false } })).toEqual({ status: "SCORE_UNAVAILABLE", reason: "UNVERIFIED_MAPPING" });
+  });
+
+  it("integration: a failed API submission produces no routing, a successful one does", async () => {
+    const original = globalThis.fetch;
+    const payload = { submission_id: "cns_00000000-0000-4000-8000-000000000001", whatsapp_phone_normalized: "+14165550100" } as never;
+    try {
+      globalThis.fetch = (async () => new Response("{}", { status: 500 })) as typeof fetch;
+      const failed = await submitConsultToCRM(payload);
+      expect(failed.ok).toBe(false);
+      expect(routeAfterSubmission({ ...base, submission: failed })).toEqual({ status: "NOT_SUBMITTED" });
+
+      globalThis.fetch = (async () => new Response(JSON.stringify({ ok: true, crm_record_id: "1" }), { status: 200 })) as typeof fetch;
+      const ok = await submitConsultToCRM(payload);
+      expect(ok.ok).toBe(true);
+      expect(routeAfterSubmission({ ...base, submission: ok })).toMatchObject({ status: "ROUTED", scenario: "A" });
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });
 

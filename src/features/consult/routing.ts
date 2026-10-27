@@ -5,8 +5,9 @@
  *  - Zoho Forms (PM evidence): Score = USD Budget + Toman Budget + Seriousness; the hidden budget field is expected to contribute nothing.
  *  - Smart Redirector, ThankYou.tsx (Lovable project 7d10219c): A = tz "1" && score >= 6, B = tz "2", C = tz "1" && score < 6.
  *
- * The numeric points per option are NOT verified yet. They live ONLY in SCORE_MAPPING below (null = unknown). While the mapping is
- * unverified, computeScore never returns a number, so no real score can be produced or stored.
+ * The numeric points per option were confirmed by the PM from the Zoho Forms Builder (2026-10-27) and live ONLY in SCORE_MAPPING below.
+ * The new form has a single budget question, so Score = budget points + seriousness points (range 2-8). The hidden Zoho budget field
+ * has no counterpart here and contributes nothing.
  */
 
 export const ROUTING_THRESHOLD = 6;
@@ -23,13 +24,19 @@ export interface ScoreMapping {
   seriousness: Record<"exploring" | "free_only" | "ready_if_results" | "committed", Points>;
 }
 
-/** Single configurable mapping. Fill in from Zoho Forms and set verified = true in one reviewed change. */
+/** Single configurable mapping: confirmed Zoho Forms values (PM, 2026-10-27). Change only together with the Zoho form. */
 export const SCORE_MAPPING: ScoreMapping = {
-  verified: false,
-  usdBudget: { lt_70: null, "70_170": null, "170_270": null, gt_270: null },
-  tomanBudget: { lt_5m: null, "5_10m": null, "10_20m": null, gt_20m: null },
-  seriousness: { exploring: null, free_only: null, ready_if_results: null, committed: null },
+  verified: true,
+  usdBudget: { lt_70: 1, "70_170": 2, "170_270": 3, gt_270: 4 },
+  tomanBudget: { lt_5m: 1, "5_10m": 2, "10_20m": 3, gt_20m: 4 },
+  seriousness: { exploring: 1, free_only: 2, ready_if_results: 3, committed: 4 },
 };
+
+/** WhatsApp destination copied from the Smart Redirector source (ThankYou.tsx, Lovable project 7d10219c). Text decodes to: سلام، من فرم مشاوره را پر کردم. */
+export const WHATSAPP_URL =
+  "https://wa.me/14376085008?text=%D8%B3%D9%84%D8%A7%D9%85%D8%8C%20%D9%85%D9%86%20%D9%81%D8%B1%D9%85%20%D9%85%D8%B4%D8%A7%D9%88%D8%B1%D9%87%20%D8%B1%D8%A7%20%D9%BE%D8%B1%20%DA%A9%D8%B1%D8%AF%D9%85.";
+/** Scenario C "programs" destination from the same source (LANDING_URL). */
+export const PLANS_URL = "https://price.six2fit.com";
 
 export type ScoreResult =
   | { status: "UNVERIFIED_MAPPING" }

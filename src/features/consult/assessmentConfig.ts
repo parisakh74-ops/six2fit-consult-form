@@ -552,10 +552,10 @@ export const readinessQuestion = {
   code: "CO-14",
   question: "آمادگی شما برای شروع چقدر است؟",
   options: [
-    { value: "exploring", label: "در حال بررسی هستم", points: 0 },
-    { value: "free_only", label: "فقط راهکار ساده و رایگان می‌خواهم", points: 0 },
-    { value: "ready_if_results", label: "آماده‌ام اگر نتیجه ببینم", points: 2 },
-    { value: "committed", label: "کاملاً متعهد هستم", points: 3 },
+    { value: "exploring", label: "در حال بررسی هستم" },
+    { value: "free_only", label: "فقط راهکار ساده و رایگان می‌خواهم" },
+    { value: "ready_if_results", label: "آماده‌ام اگر نتیجه ببینم" },
+    { value: "committed", label: "کاملاً متعهد هستم" },
   ] as Option[],
 };
 

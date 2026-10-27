@@ -49,6 +49,7 @@ import {
   type SafetyOutcome,
 } from "./assessmentConfig";
 import { toAsciiDigits } from "./outcome";
+import { PLANS_URL, WHATSAPP_URL, lovableTzCode, routeAfterSubmission, type RoutingResult } from "./routing";
 import { phonePlaceholder } from "./phonePlaceholder";
 import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
 import { buildPayload, createSubmissionId, submitConsultToCRM } from "./crm";
@@ -96,6 +97,7 @@ export function ConsultForm() {
   const [step, setStep] = useState(0);
   const [status, setStatus] = useState<Status>("idle");
   const [outcome, setOutcome] = useState<SafetyOutcome>("GREEN");
+  const [routing, setRouting] = useState<RoutingResult>({ status: "NOT_SUBMITTED" });
   const pendingRef = useRef(false);
   const [noNutritionConditions, setNoNutritionConditions] = useState(false);
   const [nutritionSelectionError, setNutritionSelectionError] = useState(false);
@@ -195,6 +197,22 @@ export function ConsultForm() {
         return;
       }
       setOutcome(payload.safety_outcome);
+      // Routing is decided only here, after the API confirmed the submission. tz follows the Smart Redirector rule (browser time zone);
+      // how the new form should derive tz is an open Product decision, see evidence/CRM-IDENTITY-DQ/CONSULT-SCORE-ROUTING-MAPPING-20261027.md.
+      let browserTz: string | undefined;
+      try {
+        browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        browserTz = undefined;
+      }
+      setRouting(
+        routeAfterSubmission({
+          submission: result,
+          tz: lovableTzCode(browserTz),
+          budget_range: payload.budget_range,
+          readiness_level: payload.readiness_level,
+        }),
+      );
       setStatus("success");
       submissionIdRef.current = null;
       if (typeof window !== "undefined") window.scrollTo({ top: 0 });
@@ -228,6 +246,29 @@ export function ConsultForm() {
           <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-muted-foreground">
             {copy.text}
           </p>
+          {routing.status === "ROUTED" ? (
+            <div className="mt-6" data-testid="routing-cta" data-scenario={routing.scenario}>
+              {routing.scenario === "C" ? (
+                <a
+                  href={PLANS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-brand px-5 py-3 text-[15px] font-semibold text-white"
+                >
+                  مشاهده پلن‌ها
+                </a>
+              ) : (
+                <a
+                  href={WHATSAPP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-brand px-5 py-3 text-[15px] font-semibold text-white"
+                >
+                  {routing.scenario === "A" ? "درخواست مشاوره مستقیم" : "ارسال پیام در واتساپ"}
+                </a>
+              )}
+            </div>
+          ) : null}
         </Card>
         {import.meta.env.DEV ? (
           <DevPayloadPreview
