@@ -49,7 +49,7 @@ import {
 } from "./assessmentConfig";
 import { toAsciiDigits } from "./outcome";
 import { RoutingCtas } from "./RoutingCtas";
-import { ctasAllowedFor, resultTextFor, routeAfterSubmission, type RoutingResult } from "./routing";
+import { ctasAllowedFor, resultCopyFor, routeAfterSubmission, type RoutingResult } from "./routing";
 import { budgetGroupForTz, detectTzCode, isBudgetValueForTz, type TzCode } from "./timezone";
 import { phonePlaceholder } from "./phonePlaceholder";
 import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
@@ -248,7 +248,7 @@ export function ConsultForm() {
 
   /* ---------------- result screen ---------------- */
   if (status === "success") {
-    const copy = outcomeCopy[outcome];
+    const copy = resultCopyFor(outcome, routing, outcomeCopy[outcome]);
     return (
       <PageShell>
         <Card className="text-center">
@@ -264,8 +264,8 @@ export function ConsultForm() {
             </svg>
           </div>
           <h1 className="text-xl font-bold text-foreground sm:text-2xl">{copy.title}</h1>
-          <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-muted-foreground">
-            {resultTextFor(outcome, routing, copy.text)}
+          <p className="mx-auto mt-3 max-w-[520px] whitespace-pre-line text-[15px] leading-8 text-muted-foreground">
+            {copy.text}
           </p>
           {routing.status === "ROUTED" && ctasAllowedFor(outcome) ? (
             <div className="mt-6">
