@@ -49,7 +49,7 @@ import {
 } from "./assessmentConfig";
 import { toAsciiDigits } from "./outcome";
 import { RoutingCtas } from "./RoutingCtas";
-import { ctasAllowedFor, routeAfterSubmission, type RoutingResult } from "./routing";
+import { ctasAllowedFor, resultTextFor, routeAfterSubmission, type RoutingResult } from "./routing";
 import { budgetGroupForTz, detectTzCode, isBudgetValueForTz, type TzCode } from "./timezone";
 import { phonePlaceholder } from "./phonePlaceholder";
 import { budgetOptionsFor, phoneInputHelper, schemaForStep } from "./schema";
@@ -265,7 +265,7 @@ export function ConsultForm() {
           </div>
           <h1 className="text-xl font-bold text-foreground sm:text-2xl">{copy.title}</h1>
           <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-muted-foreground">
-            {copy.text}
+            {resultTextFor(outcome, routing, copy.text)}
           </p>
           {routing.status === "ROUTED" && ctasAllowedFor(outcome) ? (
             <div className="mt-6">

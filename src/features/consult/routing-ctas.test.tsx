@@ -43,3 +43,36 @@ describe("sales CTAs and safety outcomes (restriction is an open Product decisio
     expect(ctasAllowedFor("RED_SPECIALIST")).toBe(true);
   });
 });
+
+import { outcomeCopy } from "./assessmentConfig";
+import { WHATSAPP_CTA_LABEL, resultTextFor } from "./routing";
+
+describe("result sentence names the WhatsApp button instead of promising a call", () => {
+  const routed = (scenario: "A" | "B" | "C") => ({ status: "ROUTED", scenario, score: scenario === "B" ? null : 6 }) as const;
+  const base = outcomeCopy.GREEN.text;
+
+  it("GREEN + scenario A: tells the user to click the direct-consultation button", () => {
+    const text = resultTextFor("GREEN", routed("A"), base);
+    expect(text).toBe("برای برقراری ارتباط با کارشناس روی «درخواست مشاوره مستقیم» کلیک کنید.");
+    expect(text).not.toContain("در ارتباط خواهد بود");
+  });
+
+  it("GREEN + scenario B: names the WhatsApp message button", () => {
+    expect(resultTextFor("GREEN", routed("B"), base)).toBe("برای برقراری ارتباط با کارشناس روی «ارسال پیام در واتساپ» کلیک کنید.");
+  });
+
+  it("the sentence uses the exact label rendered on the button", () => {
+    for (const s of ["A", "B"] as const) {
+      expect(renderToStaticMarkup(<RoutingCtas scenario={s} />)).toContain(WHATSAPP_CTA_LABEL[s]);
+      expect(resultTextFor("GREEN", routed(s), base)).toContain(`«${WHATSAPP_CTA_LABEL[s]}»`);
+    }
+  });
+
+  it("every other case keeps the existing outcome text", () => {
+    expect(resultTextFor("GREEN", routed("C"), base)).toBe(base);
+    expect(resultTextFor("GREEN", { status: "NOT_SUBMITTED" }, base)).toBe(base);
+    expect(resultTextFor("GREEN", { status: "SCORE_UNAVAILABLE", reason: "INCOMPLETE" }, base)).toBe(base);
+    expect(resultTextFor("YELLOW_REVIEW", routed("A"), outcomeCopy.YELLOW_REVIEW.text)).toBe(outcomeCopy.YELLOW_REVIEW.text);
+    expect(resultTextFor("RED_SPECIALIST", routed("B"), outcomeCopy.RED_SPECIALIST.text)).toBe(outcomeCopy.RED_SPECIALIST.text);
+  });
+});

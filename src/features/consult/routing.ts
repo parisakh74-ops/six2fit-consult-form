@@ -112,3 +112,25 @@ export const CTA_ALLOWED_OUTCOMES: readonly ("GREEN" | "YELLOW_REVIEW" | "RED_SP
 export function ctasAllowedFor(outcome: "GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST"): boolean {
   return CTA_ALLOWED_OUTCOMES.includes(outcome);
 }
+
+/** Button labels of the WhatsApp call-to-actions (same as the Smart Redirector); the result sentence below names them. */
+export const WHATSAPP_CTA_LABEL: Record<"A" | "B", string> = {
+  A: "درخواست مشاوره مستقیم",
+  B: "ارسال پیام در واتساپ",
+};
+
+/**
+ * Result-page sentence. The old GREEN text ("the Six2Fit team will contact you") is wrong for the real flow: the user opens WhatsApp with a prepared
+ * message and the specialists start the consultation there. Where a WhatsApp button is shown (scenarios A and B) the sentence tells the user to
+ * click it; every other case keeps the existing outcome text unchanged.
+ */
+export function resultTextFor(
+  outcome: "GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST",
+  routing: RoutingResult,
+  fallback: string,
+): string {
+  if (outcome === "GREEN" && routing.status === "ROUTED" && (routing.scenario === "A" || routing.scenario === "B")) {
+    return `برای برقراری ارتباط با کارشناس روی «${WHATSAPP_CTA_LABEL[routing.scenario]}» کلیک کنید.`;
+  }
+  return fallback;
+}
