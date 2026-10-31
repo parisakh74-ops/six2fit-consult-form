@@ -1,7 +1,7 @@
 import { fingerprint } from "../canonical";
 import { StoreError } from "../errors";
 import type { StoredConsult } from "../store";
-import { computeScore } from "../../../features/consult/routing";
+import { computeScore, routeAfterSubmission } from "../../../features/consult/routing";
 
 /**
  * Mapping between the validated consult-2.1.0 payload and the Sandbox module
@@ -115,14 +115,16 @@ export type MappingOptions = {
   /** Set only together with a verified Lead reference. */
   identityMatch?: "Existing Lead" | undefined;
   /**
-   * Also write `Consult_Score` (derived HERE from the validated budget_range + readiness_level, never taken from the client).
-   * Default false: the CRM field does not exist yet (proposed, Class 3); writing an unknown field would fail the create.
+   * Also write `Consult_Score` and `Routing_Scenario` (both derived HERE from the validated budget_range, readiness_level and budget_tz, never
+   * taken from the client). Default false: writing a field that does not exist in the CRM would fail the create.
    */
   persistScore?: boolean | undefined;
 };
 
-/** Proposed CRM field for the consultation score (NOT created anywhere). Integer, range 2-8. */
+/** CRM field for the consultation score (created in Production 2026-10-31). Integer, range 2-8. */
 export const PROPOSED_SCORE_FIELD = { apiName: "Consult_Score", type: "integer", maxDigits: 1 } as const;
+/** CRM field for the A/B/C routing result (created in Production 2026-10-31). Picklist A, B, C; no separate tz field (PM decision). */
+export const ROUTING_SCENARIO_FIELD = { apiName: "Routing_Scenario", type: "picklist", values: ["A", "B", "C"] } as const;
 
 export const toZohoDateTime = (iso: string | Date): string => {
   const d = iso instanceof Date ? iso : new Date(iso);
@@ -294,9 +296,16 @@ export function buildCrmRecord(payload: Record<string, unknown>, opts: MappingOp
   option(out, "Budget_Range", payload["budget_range"]);
   option(out, "Readiness_Level", payload["readiness_level"]);
   if (opts.persistScore === true) {
-    const scored = computeScore({ tz: payload["budget_tz"] === "1" ? "1" : "2", budget_range: asString(payload["budget_range"], "Budget_Range"), readiness_level: asString(payload["readiness_level"], "Readiness_Level") });
+    const tz = payload["budget_tz"] === "1" ? "1" : "2";
+    const budgetRange = asString(payload["budget_range"], "Budget_Range");
+    const readiness = asString(payload["readiness_level"], "Readiness_Level");
+    const scored = computeScore({ tz, budget_range: budgetRange, readiness_level: readiness });
     if (scored.status === "OK") out[PROPOSED_SCORE_FIELD.apiName] = scored.score;
     else degraded.push(PROPOSED_SCORE_FIELD.apiName);
+    // Same decision function as the result page (A: tz 1 and score >= 6, B: tz 2, C: tz 1 and score < 6).
+    const routed = routeAfterSubmission({ submission: { ok: true }, tz, budget_range: budgetRange, readiness_level: readiness });
+    if (routed.status === "ROUTED") out[ROUTING_SCENARIO_FIELD.apiName] = routed.scenario;
+    else degraded.push(ROUTING_SCENARIO_FIELD.apiName);
   }
   text(out, degraded, "Timezone", payload["preferred_contact_timezone"], CRM_TEXT_MAX);
 
