@@ -112,3 +112,37 @@ export const CTA_ALLOWED_OUTCOMES: readonly ("GREEN" | "YELLOW_REVIEW" | "RED_SP
 export function ctasAllowedFor(outcome: "GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST"): boolean {
   return CTA_ALLOWED_OUTCOMES.includes(outcome);
 }
+
+/** Button labels of the WhatsApp call-to-actions (same as the Smart Redirector Thank You page). */
+export const WHATSAPP_CTA_LABEL: Record<"A" | "B", string> = {
+  A: "درخواست مشاوره مستقیم",
+  B: "ارسال پیام در واتس‌اپ",
+};
+
+export type ResultCopy = { title: string; text: string };
+
+/**
+ * Result-page copy per scenario. The old GREEN text ("the Six2Fit team will contact you") is wrong for the real flow: the user opens WhatsApp with
+ * a prepared message (or watches the guide) and nobody calls them. For GREEN:
+ *  - A: PM wording, tells the user to click the direct-consultation button (title unchanged);
+ *  - B: text of the Smart Redirector scenario B (title unchanged);
+ *  - C: title and text of the Smart Redirector scenario C (two lines).
+ * YELLOW_REVIEW / RED_SPECIALIST and every case without a routing result keep the existing outcome copy.
+ */
+export function resultCopyFor(
+  outcome: "GREEN" | "YELLOW_REVIEW" | "RED_SPECIALIST",
+  routing: RoutingResult,
+  fallback: ResultCopy,
+): ResultCopy {
+  if (outcome !== "GREEN" || routing.status !== "ROUTED") return fallback;
+  if (routing.scenario === "A") {
+    return { title: fallback.title, text: `برای برقراری ارتباط با کارشناس روی «${WHATSAPP_CTA_LABEL.A}» کلیک کنید.` };
+  }
+  if (routing.scenario === "B") {
+    return { title: fallback.title, text: "از طریق دکمه زیر می‌توانید با یکی از کارشناسان ارشد تیم ما در ارتباط باشید:" };
+  }
+  return {
+    title: "ممنون که فرم درخواست رو تکمیل کردی!",
+    text: "بر اساس اطلاعاتی که وارد کردی، یک ویدیوی راهنما برات آماده کردیم.\nتوی این ویدیو با مسیرهای مختلف 6tofit آشنا می‌شی و می‌تونی راحت‌تر برنامه مناسب خودت رو انتخاب کنی.",
+  };
+}
