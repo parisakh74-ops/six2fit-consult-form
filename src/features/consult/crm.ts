@@ -6,6 +6,7 @@ import {
   outcomeCopy,
 } from "./assessmentConfig";
 import { buildActiveModules, evaluateOutcome, exerciseSafetyApplies, getActiveCategories, getActiveClearance, normalizePhone } from "./outcome";
+import { readUrlAttribution } from "./attribution";
 import { budgetGroupForTz, type TzCode } from "./timezone";
 import type { ConsultAnswers, ConsultPayload, SubmitResult } from "./types";
 
@@ -26,13 +27,8 @@ function readAttribution() {
       landing_page: null,
     };
   }
-  const params = new URLSearchParams(window.location.search);
-  const get = (k: string) => params.get(k)?.slice(0, 120) || null;
   return {
-    utm_source: get("utm_source"),
-    utm_campaign: get("utm_campaign"),
-    instagram_id: get("instagram_id"),
-    manychat_id: get("manychat_id"),
+    ...readUrlAttribution(window.location.search),
     landing_page: `${window.location.origin}${window.location.pathname}`,
   };
 }

@@ -18,6 +18,11 @@ export type ConsultServiceDeps = {
   leadRefSecret?: string;
   /** Structured logger; receives codes and counters only, never answers, ids or paths. */
   log?: (event: string, fields?: Record<string, string | number | boolean>) => void;
+  /**
+   * Fire-and-forget hook after a NEW submission was accepted (never for deduplicated replays or failures).
+   * Its result and any error are ignored: it can never change the response or delay it.
+   */
+  onAccepted?: (info: { submission_id: string; manychat_id: string | null }) => void | Promise<void>;
 };
 
 export type ConsultSubmitInput = {
@@ -55,6 +60,16 @@ export function createConsultService(deps: ConsultServiceDeps) {
     if (existing.payload_hash === hash) return true;
     // Legacy records (no version) were hashed with JSON.stringify of the whole payload.
     return existing.version === undefined && existing.payload_hash === legacyPayloadHash(incoming);
+  }
+
+  function notifyAccepted(submissionId: string, payload: Record<string, unknown>): void {
+    if (!deps.onAccepted) return;
+    const raw = payload["manychat_id"];
+    try {
+      void Promise.resolve(deps.onAccepted({ submission_id: submissionId, manychat_id: typeof raw === "string" ? raw : null })).catch(() => undefined);
+    } catch {
+      /* a failing hook never affects the submission */
+    }
   }
 
   async function submit(input: ConsultSubmitInput): Promise<ConsultResult> {
@@ -126,6 +141,7 @@ export function createConsultService(deps: ConsultServiceDeps) {
         identity,
       };
       const created = await deps.store.create(id, record);
+      if (created.status === "created") notifyAccepted(id, payload);
       if (created.status === "created") return done(success(id, payload, false, created.record.record_ref ?? (record.record_ref as string)), "consult.created");
       // Lost a race with a concurrent identical/conflicting request.
       return sameSubmission(created.record, payload, hash)

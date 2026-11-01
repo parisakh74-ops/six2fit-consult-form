@@ -1,4 +1,5 @@
 import { DEFAULT_MAX_BODY_BYTES, errorResult, type ConsultResult } from "./contract";
+import { createManychatMarker, manychatConfigFromEnv } from "./manychat/marker";
 import { createConsultService, type ConsultService } from "./service";
 import { createConsultStore, StoreError } from "./store";
 import { stagingConfig } from "../staging-handoff";
@@ -58,11 +59,15 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   const maxBodyBytes = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : DEFAULT_MAX_BODY_BYTES;
   const leadRefSecret = (env["SIX2FIT_CONSULT_LEAD_REF_SECRET"] ?? "").trim();
   if (leadRefSecret !== "" && leadRefSecret.length < 32) throw new StoreError("NOT_CONFIGURED", "lead reference secret too short", "CONFIG");
+  const log = (event: string, fields?: Record<string, string | number | boolean>) => console.info(JSON.stringify({ event, ...fields }));
+  // Off unless SIX2FIT_CONSULT_MANYCHAT_MARK=true and a token is configured on the server.
+  const manychat = createManychatMarker(manychatConfigFromEnv(env), { log });
   const service = createConsultService({
     store,
     maxBodyBytes,
     ...(leadRefSecret ? { leadRefSecret } : {}),
-    log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
+    log,
+    onAccepted: (info) => manychat.markFormSubmitted(info.manychat_id).then(() => undefined),
   });
   return { service, maxBodyBytes };
 }
